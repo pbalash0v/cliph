@@ -1,0 +1,22 @@
+cmake_minimum_required(VERSION 3.18)
+include_guard()
+
+include(FetchContent)
+
+set(BUILD_DSO_PLUGINS OFF CACHE STRING "" FORCE)
+set(BUILD_QPID_PROTON OFF CACHE STRING "" FORCE)
+set(BUILD_REPRO OFF CACHE STRING "" FORCE)
+set(BUILD_RETURN OFF CACHE STRING "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE STRING "" FORCE)
+set(REGENERATE_MEDIA_SAMPLES OFF CACHE STRING "" FORCE)
+set(ENABLE_LOG_REPOSITORY_DETAILS OFF CACHE STRING "" FORCE)
+
+message(STATUS "Standby, pulling reSIProcate...")
+FetchContent_Declare(resip_
+	GIT_REPOSITORY https://github.com/resiprocate/resiprocate.git
+	GIT_TAG 0bc686cacb706a5168473841c250c95d16cf6902
+	GIT_PROGRESS ON
+	GIT_SHALLOW ON
+)
+FetchContent_MakeAvailable(resip_)
+
