@@ -13,6 +13,8 @@ set(TARGET_NAME ${PROJECT_NAME})
 add_executable(${TARGET_NAME})
 target_sources(${TARGET_NAME} PRIVATE
 	main.cpp
+	uac.cpp
+	audio_engine.cpp
 )
 target_link_libraries(${TARGET_NAME} PRIVATE
 	${CMAKE_DL_LIBS}
@@ -29,7 +31,7 @@ set_target_properties(${TARGET_NAME} PROPERTIES
 #	INTERPROCEDURAL_OPTIMIZATION ON	
 )
 target_compile_options(${TARGET_NAME} PRIVATE
-	$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -pedantic># -Werror>
+	$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall> #-Wextra -pedantic># -Werror>
 #	$<$<CXX_COMPILER_ID:Clang>:-fcoroutines-ts -stdlib=libc++>
 #	$<$<CXX_COMPILER_ID:GNU>:-fcoroutines>
 )

@@ -1,5 +1,4 @@
-#ifndef basic_invite_UAC_hpp
-#define basic_invite_UAC_hpp
+#include "uac.hpp"
 
 #include "resip/dum/AppDialog.hxx"
 #include "resip/dum/AppDialogSet.hxx"
@@ -26,13 +25,25 @@
 #include "rutil/Random.hxx"
 
 #include <sstream>
-#include <atomic>
+
 #include <time.h>
 #include <utility>
 
 
 namespace
 {
+struct DUMShutdownHandler : public resip::DumShutdownHandler
+{
+	void onDumCanBeDeleted() override
+	{
+		std::cout << "onDumCanBeDeleted." << std::endl;
+		dumShutDown = true;
+	}
+
+	resip::Data name;
+	bool dumShutDown{false};	
+}; //struct DUMShutdownHandler
+
 
 #define RESIPROCATE_SUBSYSTEM Subsystem::TEST
 
@@ -40,26 +51,19 @@ namespace
 class InviteSessionHandler : public resip::InviteSessionHandler, public resip::OutOfDialogHandler
 {
 public:
-	resip::Data name;
-
-	InviteSessionHandler(const resip::Data& n)
-		: name(n)
-	{
-	}
-
 	void onNewSession(resip::ClientInviteSessionHandle, resip::InviteSession::OfferAnswerType, const resip::SipMessage& msg) override
 	{
-		std::cout << name << ": ClientInviteSession-onNewSession - " << msg.brief() << std::endl;
+		std::cout << "ClientInviteSession-onNewSession - " << msg.brief() << std::endl;
 	}
 
 	void onNewSession(resip::ServerInviteSessionHandle, resip::InviteSession::OfferAnswerType, const resip::SipMessage& msg) override
 	{
-		std::cout << name << ": ServerInviteSession-onNewSession - " << msg.brief() << std::endl;
+		std::cout << "ServerInviteSession-onNewSession - " << msg.brief() << std::endl;
 	}
 
 	void onFailure(resip::ClientInviteSessionHandle, const resip::SipMessage& msg) override
 	{
-		std::cout << name << ": ClientInviteSession-onFailure - " << msg.brief() << std::endl;
+		std::cout << "ClientInviteSession-onFailure - " << msg.brief() << std::endl;
 
 		const resip::StatusLine& sLine = msg.header(resip::h_StatusLine);
 		assert(sLine.responseCode() != 500);
@@ -67,137 +71,138 @@ public:
 
 	void onProvisional(resip::ClientInviteSessionHandle, const resip::SipMessage& msg) override
 	{
-		std::cout << name << ": ClientInviteSession-onProvisional - " << msg.brief() << std::endl;
+		std::cout << "ClientInviteSession-onProvisional - " << msg.brief() << std::endl;
 	}
 
 	void onConnected(resip::ClientInviteSessionHandle, const resip::SipMessage& msg) override
 	{
-		std::cout << name << ": ClientInviteSession-onConnected - " << msg.brief() << std::endl;
+		std::cout << "ClientInviteSession-onConnected - " << msg.brief() << std::endl;
 	}
 
 	void onStaleCallTimeout(resip::ClientInviteSessionHandle) override
 	{
-		std::cout << name << ": ClientInviteSession-onStaleCallTimeout" << std::endl;
+		std::cout << "ClientInviteSession-onStaleCallTimeout" << std::endl;
 	}
 
 	void onConnected(resip::InviteSessionHandle, const resip::SipMessage& msg) override
 	{
-		std::cout << name << ": InviteSession-onConnected - " << msg.brief() << std::endl;
+		std::cout << "InviteSession-onConnected - " << msg.brief() << std::endl;
 	}
 
 	void onRedirected(resip::ClientInviteSessionHandle, const resip::SipMessage& msg) override
 	{
-		std::cout << name << ": ClientInviteSession-onRedirected - " << msg.brief() << std::endl;
+		std::cout << "ClientInviteSession-onRedirected - " << msg.brief() << std::endl;
 	}
 
 	void onTerminated(resip::InviteSessionHandle, resip::InviteSessionHandler::TerminatedReason, const resip::SipMessage* msg) override
 	{
-		std::cout << name << ": InviteSession-onTerminated - " << msg->brief() << std::endl;
+		std::cout << "InviteSession-onTerminated - " << msg->brief() << std::endl;
 		assert(false); // This is overriden in UAS and UAC specific handlers
 	}
 
 	void onAnswer(resip::InviteSessionHandle, const resip::SipMessage&, const resip::SdpContents&) override
 	{
-		std::cout << name << ": InviteSession-onAnswer(SDP)" << std::endl;
+		std::cout << "InviteSession-onAnswer(SDP)" << std::endl;
 		//sdp->encode(std::cout);
 	}
 
 	void onOffer(resip::InviteSessionHandle, const resip::SipMessage&, const resip::SdpContents&) override
 	{
-		std::cout << name << ": InviteSession-onOffer(SDP)" << std::endl;
+		std::cout << "InviteSession-onOffer(SDP)" << std::endl;
 		//sdp->encode(std::cout);
 	}
 
 	void onEarlyMedia(resip::ClientInviteSessionHandle, const resip::SipMessage&, const resip::SdpContents&) override
 	{
-		std::cout << name << ": InviteSession-onEarlyMedia(SDP)" << std::endl;
+		std::cout << "InviteSession-onEarlyMedia(SDP)" << std::endl;
 		//sdp->encode(std::cout);
 	}
 
 	void onOfferRequired(resip::InviteSessionHandle, const resip::SipMessage& msg) override
 	{
-		std::cout << name << ": InviteSession-onOfferRequired - " << msg.brief() << std::endl;
+		std::cout << "InviteSession-onOfferRequired - " << msg.brief() << std::endl;
 	}
 
 	void onOfferRejected(resip::InviteSessionHandle, const resip::SipMessage*) override
 	{
-		std::cout << name << ": InviteSession-onOfferRejected" << std::endl;
+		std::cout << "InviteSession-onOfferRejected" << std::endl;
 	}
 
 	void onRefer(resip::InviteSessionHandle, resip::ServerSubscriptionHandle, const resip::SipMessage& msg) override
 	{
-		std::cout << name << ": InviteSession-onRefer - " << msg.brief() << std::endl;
+		std::cout << "InviteSession-onRefer - " << msg.brief() << std::endl;
 	}
 
 	void onReferAccepted(resip::InviteSessionHandle, resip::ClientSubscriptionHandle, const resip::SipMessage& msg) override
 	{
-		std::cout << name << ": InviteSession-onReferAccepted - " << msg.brief() << std::endl;
+		std::cout << "InviteSession-onReferAccepted - " << msg.brief() << std::endl;
 	}
 
 	void onReferRejected(resip::InviteSessionHandle, const resip::SipMessage& msg) override
 	{
-		std::cout << name << ": InviteSession-onReferRejected - " << msg.brief() << std::endl;
+		std::cout << "InviteSession-onReferRejected - " << msg.brief() << std::endl;
 	}
 
 	void onReferNoSub(resip::InviteSessionHandle, const resip::SipMessage& msg) override
 	{
-		std::cout << name << ": InviteSession-onReferNoSub - " << msg.brief() << std::endl;
+		std::cout << "InviteSession-onReferNoSub - " << msg.brief() << std::endl;
 	}
 
 	void onInfo(resip::InviteSessionHandle, const resip::SipMessage& msg) override
 	{
-		std::cout << name << ": InviteSession-onInfo - " << msg.brief() << std::endl;
+		std::cout << "InviteSession-onInfo - " << msg.brief() << std::endl;
 	}
 
 	void onInfoSuccess(resip::InviteSessionHandle, const resip::SipMessage& msg) override
 	{
-		std::cout << name << ": InviteSession-onInfoSuccess - " << msg.brief() << std::endl;
+		std::cout << "InviteSession-onInfoSuccess - " << msg.brief() << std::endl;
 	}
 
 	void onInfoFailure(resip::InviteSessionHandle, const resip::SipMessage& msg) override
 	{
-		std::cout << name << ": InviteSession-onInfoFailure - " << msg.brief() << std::endl;
+		std::cout << "InviteSession-onInfoFailure - " << msg.brief() << std::endl;
 	}
 
 	void onMessage(resip::InviteSessionHandle, const resip::SipMessage& msg) override
 	{
-		std::cout << name << ": InviteSession-onMessage - " << msg.brief() << std::endl;
+		std::cout << "InviteSession-onMessage - " << msg.brief() << std::endl;
 	}
 
 	void onMessageSuccess(resip::InviteSessionHandle, const resip::SipMessage& msg) override
 	{
-		std::cout << name << ": InviteSession-onMessageSuccess - " << msg.brief() << std::endl;
+		std::cout << "InviteSession-onMessageSuccess - " << msg.brief() << std::endl;
 	}
 
 	void onMessageFailure(resip::InviteSessionHandle, const resip::SipMessage& msg) override
 	{
-		std::cout << name << ": InviteSession-onMessageFailure - " << msg.brief() << std::endl;
+		std::cout << "InviteSession-onMessageFailure - " << msg.brief() << std::endl;
 	}
 
 	void onForkDestroyed(resip::ClientInviteSessionHandle) override
 	{
-		std::cout << name << ": ClientInviteSession-onForkDestroyed" << std::endl;
+		std::cout << "ClientInviteSession-onForkDestroyed" << std::endl;
 	}
 
 	// Out-of-Dialog Callbacks
 	void onSuccess(resip::ClientOutOfDialogReqHandle, const resip::SipMessage& successResponse) override
 	{
-		std::cout << name << ": ClientOutOfDialogReq-onSuccess - " << successResponse.brief() << std::endl;
+		std::cout << "ClientOutOfDialogReq-onSuccess - " << successResponse.brief() << std::endl;
 	}
 	void onFailure(resip::ClientOutOfDialogReqHandle, const resip::SipMessage& errorResponse) override
 	{
-		std::cout << name << ": ClientOutOfDialogReq-onFailure - " << errorResponse.brief() << std::endl;
+		std::cout << "ClientOutOfDialogReq-onFailure - " << errorResponse.brief() << std::endl;
 	}
 	void onReceivedRequest(resip::ServerOutOfDialogReqHandle ood, const resip::SipMessage& request) override
 	{
-		std::cout << name << ": ServerOutOfDialogReq-onReceivedRequest - " << request.brief() << std::endl;
+		std::cout << "ServerOutOfDialogReq-onReceivedRequest - " << request.brief() << std::endl;
 		// Add SDP to response here if required
-		std::cout << name << ": Sending 200 response to OPTIONS." << std::endl;
+		std::cout << "Sending 200 response to OPTIONS." << std::endl;
 		ood->send(ood->answerOptions());
 	}
 }; //class InviteSessionHandler
 
-class TestUac : public InviteSessionHandler
+
+class sip_agent : public InviteSessionHandler
 {
 public:
 	bool done {false};
@@ -206,8 +211,7 @@ public:
 	std::unique_ptr<resip::HeaderFieldValue> hfv;
 	std::unique_ptr<resip::Data> txt;
 
-	TestUac()
-		: InviteSessionHandler("UAC")
+	sip_agent()
 	{
 		txt = std::make_unique<resip::Data>("v=0\r\n"
 											"o=1900 369696545 369696545 IN IP4 192.168.2.15\r\n"
@@ -230,13 +234,13 @@ public:
 	// handle incoming INVITE (i.e. sip_sig is caller)
 	void onNewSession(resip::ServerInviteSessionHandle sis_h, resip::InviteSession::OfferAnswerType, const resip::SipMessage& msg) override
 	{
-		std::cout << name << ": ServerInviteSession-onNewSession - " << msg.brief() << std::endl;
+		std::cout << "ServerInviteSession-onNewSession - " << msg.brief() << std::endl;
 		sis_h->reject(403);
 	}
 
 	void onOffer(resip::InviteSessionHandle is, const resip::SipMessage&, const resip::SdpContents& sdp) override
 	{
-		std::cout << name << ": InviteSession-onOffer(SDP)" << std::endl;
+		std::cout << "InviteSession-onOffer(SDP)" << std::endl;
 		//sdp->encode(std::cout);
 		is->provideAnswer(sdp);
 	}
@@ -258,7 +262,7 @@ public:
 
 	void onTerminated(resip::InviteSessionHandle, resip::InviteSessionHandler::TerminatedReason, const resip::SipMessage* msg) override
 	{
-		std::cout << name << ": InviteSession-onTerminated - ";
+		std::cout << "InviteSession-onTerminated - ";
 		if (msg)
 		{
 			std::cout << msg->brief() << std::endl;
@@ -267,22 +271,15 @@ public:
 
 		done = true;
 	}
-};
+}; // class TestUacs
 
-struct DUMShutdownHandler : public resip::DumShutdownHandler
+
+} // namespace
+
+namespace cliph::sip
 {
-	void onDumCanBeDeleted() override
-	{
-		std::cout << "onDumCanBeDeleted." << std::endl;
-		dumShutDown = true;
-	}
 
-	resip::Data name;
-	bool dumShutDown{false};	
-}; //struct DUMShutdownHandler
-
-
-void run_UAC(std::atomic_bool& should_stop, const std::string& username, resip::TransportType transport, uint16_t port = 0)
+void run(std::atomic_bool& should_stop, call_config call_cfg, agent_config agent_cfg)
 {
 	resip::Log::initialize(resip::Log::Cout, resip::Log::Info, resip::Data{"cliphone"});
 
@@ -292,20 +289,20 @@ void run_UAC(std::atomic_bool& should_stop, const std::string& username, resip::
 	auto useOutbound = false;
 	resip::Uri outboundUri;
 
-	auto uacAor = resip::NameAddr("sip:caller@127.0.0.1");
-	auto uasAor = resip::NameAddr(resip::Data{std::string {"sip:"} + username + std::string{"@127.0.0.1"}});
+	auto uacAor = resip::NameAddr{resip::Data{"sip:"} + call_cfg.from_user.c_str() + "@" + call_cfg.from_domain.c_str()};
+	auto uasAor = resip::NameAddr{resip::Data{"sip:"} + call_cfg.to_user.c_str() + "@" + call_cfg.to_domain.c_str()};
 
 	//set up UAC
 	auto stackUac = resip::SipStack{};
-	stackUac.addTransport(transport, port);
+	stackUac.addTransport(agent_cfg.transport, agent_cfg.port);
 
 	auto dum = std::make_unique<resip::DialogUsageManager>(stackUac);
 	dum->setMasterProfile(std::make_shared<resip::MasterProfile>());
 	dum->setClientAuthManager(std::make_unique<resip::ClientAuthManager>());
 
-	auto uac = TestUac{};
-	dum->setInviteSessionHandler(&uac);
-	dum->addOutOfDialogHandler(resip::OPTIONS, &uac);
+	auto agent = sip_agent{};
+	dum->setInviteSessionHandler(&agent);
+	dum->addOutOfDialogHandler(resip::OPTIONS, &agent);
 
 	dum->setAppDialogSetFactory(std::make_unique<resip::AppDialogSetFactory>());
 
@@ -339,10 +336,10 @@ void run_UAC(std::atomic_bool& should_stop, const std::string& username, resip::
 		if (not startedCallFlow)
 		{
 			startedCallFlow = true;
-			dum->send(dum->makeInviteSession(uasAor, uac.mSdp.get()));
+			dum->send(dum->makeInviteSession(uasAor, agent.mSdp.get()));
 		}
 
-		if ((should_stop || uac.done) && !startedShutdown)
+		if ((should_stop || agent.done) && !startedShutdown)
 		{
 			dum->shutdown(&uacShutdownHandler);
 			startedShutdown = true;
@@ -350,6 +347,5 @@ void run_UAC(std::atomic_bool& should_stop, const std::string& username, resip::
 	}
 }
 
-} // namespace
+} // namespace cliph:sip
 
-#endif // basic_invite_UAC_hpp
