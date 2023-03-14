@@ -11,7 +11,7 @@ namespace cliph::audio
 class engine final
 {
 public:
-	static engine& get();	
+	static engine& get() noexcept;	
 public:
 	~engine();
 	engine& init();

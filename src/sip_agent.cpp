@@ -1,5 +1,10 @@
-#include "uac.hpp"
-
+#include <memory>
+#include <sstream>
+#include <iostream>
+#include <utility>
+//
+#include <time.h>
+//
 #include "resip/dum/AppDialog.hxx"
 #include "resip/dum/AppDialogSet.hxx"
 #include "resip/dum/AppDialogSetFactory.hxx"
@@ -19,16 +24,11 @@
 #include "resip/stack/ShutdownMessage.hxx"
 #include "resip/stack/SipMessage.hxx"
 #include "resip/stack/SipStack.hxx"
-
 #include "rutil/Log.hxx"
 #include "rutil/Logger.hxx"
 #include "rutil/Random.hxx"
-
-#include <sstream>
-
-#include <time.h>
-#include <utility>
-
+//
+#include "sip_agent.hpp"
 
 namespace
 {
@@ -47,18 +47,47 @@ struct DUMShutdownHandler : public resip::DumShutdownHandler
 
 #define RESIPROCATE_SUBSYSTEM Subsystem::TEST
 
-// Generic InviteSessionHandler
-class InviteSessionHandler : public resip::InviteSessionHandler, public resip::OutOfDialogHandler
+class sip_agent : public resip::InviteSessionHandler, public resip::OutOfDialogHandler
 {
+public:
+	bool done {false};
+
+	std::unique_ptr<resip::SdpContents> mSdp;
+	std::unique_ptr<resip::HeaderFieldValue> hfv;
+	std::unique_ptr<resip::Data> txt;
+
+public:
+	sip_agent()
+	{
+		txt = std::make_unique<resip::Data>("v=0\r\n"
+											"o=1900 369696545 369696545 IN IP4 192.168.2.15\r\n"
+											"s=X-Lite\r\n"
+											"c=IN IP4 192.168.2.15\r\n"
+											"t=0 0\r\n"
+											"m=audio 8000 RTP/AVP 8 3 98 97 101\r\n"
+											"a=rtpmap:8 pcma/8000\r\n"
+											"a=rtpmap:3 gsm/8000\r\n"
+											"a=rtpmap:98 iLBC\r\n"
+											"a=rtpmap:97 speex/8000\r\n"
+											"a=rtpmap:101 telephone-event/8000\r\n"
+											"a=fmtp:101 0-15\r\n");
+
+		hfv = std::make_unique<resip::HeaderFieldValue>(txt->data(), (unsigned int)txt->size());
+		resip::Mime type("application", "sdp");
+		mSdp = std::make_unique<resip::SdpContents>(*hfv, type);
+	}
+
 public:
 	void onNewSession(resip::ClientInviteSessionHandle, resip::InviteSession::OfferAnswerType, const resip::SipMessage& msg) override
 	{
-		std::cout << "ClientInviteSession-onNewSession - " << msg.brief() << std::endl;
+		std::cout << "\n\n\n\nClientInviteSession-onNewSession - " << msg.brief() << std::endl;
 	}
 
-	void onNewSession(resip::ServerInviteSessionHandle, resip::InviteSession::OfferAnswerType, const resip::SipMessage& msg) override
+	// handle incoming INVITE
+	void onNewSession(resip::ServerInviteSessionHandle sis_h, resip::InviteSession::OfferAnswerType, const resip::SipMessage& msg) override
 	{
 		std::cout << "ServerInviteSession-onNewSession - " << msg.brief() << std::endl;
+		sis_h->reject(403);
 	}
 
 	void onFailure(resip::ClientInviteSessionHandle, const resip::SipMessage& msg) override
@@ -96,8 +125,14 @@ public:
 
 	void onTerminated(resip::InviteSessionHandle, resip::InviteSessionHandler::TerminatedReason, const resip::SipMessage* msg) override
 	{
-		std::cout << "InviteSession-onTerminated - " << msg->brief() << std::endl;
-		assert(false); // This is overriden in UAS and UAC specific handlers
+		std::cout << "InviteSession-onTerminated - ";
+		if (msg)
+		{
+			std::cout << msg->brief() << std::endl;
+		}
+		std::cout << std::endl;
+
+		done = true;
 	}
 
 	void onAnswer(resip::InviteSessionHandle, const resip::SipMessage&, const resip::SdpContents&) override
@@ -106,10 +141,11 @@ public:
 		//sdp->encode(std::cout);
 	}
 
-	void onOffer(resip::InviteSessionHandle, const resip::SipMessage&, const resip::SdpContents&) override
+	void onOffer(resip::InviteSessionHandle is, const resip::SipMessage&, const resip::SdpContents& sdp) override
 	{
 		std::cout << "InviteSession-onOffer(SDP)" << std::endl;
 		//sdp->encode(std::cout);
+		is->provideAnswer(sdp);
 	}
 
 	void onEarlyMedia(resip::ClientInviteSessionHandle, const resip::SipMessage&, const resip::SdpContents&) override
@@ -199,152 +235,145 @@ public:
 		std::cout << "Sending 200 response to OPTIONS." << std::endl;
 		ood->send(ood->answerOptions());
 	}
-}; //class InviteSessionHandler
+}; //class sip_agent
 
 
-class sip_agent : public InviteSessionHandler
+class app_dialog_set : public resip::AppDialogSet
 {
 public:
-	bool done {false};
-
-	std::unique_ptr<resip::SdpContents> mSdp;
-	std::unique_ptr<resip::HeaderFieldValue> hfv;
-	std::unique_ptr<resip::Data> txt;
-
-	sip_agent()
+	app_dialog_set(resip::DialogUsageManager& dum)
+		: resip::AppDialogSet{dum}
+		, mDum{dum}
 	{
-		txt = std::make_unique<resip::Data>("v=0\r\n"
-											"o=1900 369696545 369696545 IN IP4 192.168.2.15\r\n"
-											"s=X-Lite\r\n"
-											"c=IN IP4 192.168.2.15\r\n"
-											"t=0 0\r\n"
-											"m=audio 8000 RTP/AVP 8 3 98 97 101\r\n"
-											"a=rtpmap:8 pcma/8000\r\n"
-											"a=rtpmap:3 gsm/8000\r\n"
-											"a=rtpmap:98 iLBC\r\n"
-											"a=rtpmap:97 speex/8000\r\n"
-											"a=rtpmap:101 telephone-event/8000\r\n"
-											"a=fmtp:101 0-15\r\n");
-
-		hfv = std::make_unique<resip::HeaderFieldValue>(txt->data(), (unsigned int)txt->size());
-		resip::Mime type("application", "sdp");
-		mSdp = std::make_unique<resip::SdpContents>(*hfv, type);
 	}
 
-	// handle incoming INVITE (i.e. sip_sig is caller)
-	void onNewSession(resip::ServerInviteSessionHandle sis_h, resip::InviteSession::OfferAnswerType, const resip::SipMessage& msg) override
+	resip::AppDialog* createAppDialog(const resip::SipMessage&) override
 	{
-		std::cout << "ServerInviteSession-onNewSession - " << msg.brief() << std::endl;
-		sis_h->reject(403);
+		return std::make_unique<resip::AppDialog>(mDum).release();
 	}
 
-	void onOffer(resip::InviteSessionHandle is, const resip::SipMessage&, const resip::SdpContents& sdp) override
+	resip::DialogUsageManager& mDum;
+}; // class app_dialog_set
+
+#if 0
+class app_dialog_set_factory : public resip::AppDialogSetFactory
+{
+public:
+	resip::AppDialogSet* createAppDialogSet(resip::DialogUsageManager& dum, const resip::SipMessage&)
 	{
-		std::cout << "InviteSession-onOffer(SDP)" << std::endl;
-		//sdp->encode(std::cout);
-		is->provideAnswer(sdp);
+		return std::make_unique<app_dialog_set>(dum).release();
 	}
 
-	void onConnected(resip::ClientInviteSessionHandle, const resip::SipMessage&) override
-	{
-		//BOOST_ASSERT(false);
-	}
-
-	void onMessageSuccess(resip::InviteSessionHandle, const resip::SipMessage&) override
-	{
-		assert(false);
-	}
-
-	void onInfo(resip::InviteSessionHandle, const resip::SipMessage&) override
-	{
-		assert(false);
-	}
-
-	void onTerminated(resip::InviteSessionHandle, resip::InviteSessionHandler::TerminatedReason, const resip::SipMessage* msg) override
-	{
-		std::cout << "InviteSession-onTerminated - ";
-		if (msg)
-		{
-			std::cout << msg->brief() << std::endl;
-		}
-		std::cout << std::endl;
-
-		done = true;
-	}
-}; // class TestUacs
-
-
+}; // class app_dialog_set_factory
+#endif
 } // namespace
+
+
 
 namespace cliph::sip
 {
-
-void run(std::atomic_bool& should_stop, call_config call_cfg, agent_config agent_cfg)
+agent& agent::get() noexcept
 {
-	resip::Log::initialize(resip::Log::Cout, resip::Log::Info, resip::Data{"cliphone"});
+	static auto instance = agent{};
+	return instance;
+}
 
-	auto doReg = false;
-	resip::Data uacPasswd;
-	resip::Data uasPasswd;
-	auto useOutbound = false;
-	resip::Uri outboundUri;
 
-	auto uacAor = resip::NameAddr{resip::Data{"sip:"} + call_cfg.from_user.c_str() + "@" + call_cfg.from_domain.c_str()};
-	auto uasAor = resip::NameAddr{resip::Data{"sip:"} + call_cfg.to_user.c_str() + "@" + call_cfg.to_domain.c_str()};
+void agent::stop() noexcept
+{
+	m_should_stop = true;
+}
 
-	//set up UAC
-	auto stackUac = resip::SipStack{};
-	stackUac.addTransport(agent_cfg.transport, agent_cfg.port);
+agent::~agent()
+{
+	stop();
+    if (m_agent_thread.joinable())
+    {
+		m_agent_thread.join();
+    }
+}
 
-	auto dum = std::make_unique<resip::DialogUsageManager>(stackUac);
-	dum->setMasterProfile(std::make_shared<resip::MasterProfile>());
-	dum->setClientAuthManager(std::make_unique<resip::ClientAuthManager>());
-
-	auto agent = sip_agent{};
-	dum->setInviteSessionHandler(&agent);
-	dum->addOutOfDialogHandler(resip::OPTIONS, &agent);
-
-	dum->setAppDialogSetFactory(std::make_unique<resip::AppDialogSetFactory>());
-
-	if (doReg)
+void agent::run(on_answer_cback_type&& on_ans_cb, on_hangup_cback_type&& on_hang_cb)
+{
+	const auto loop = [&, on_ans_cb=std::move(on_ans_cb), on_hang_cb=std::move(on_hang_cb)]()
 	{
-		dum->getMasterProfile()->setDigestCredential(uacAor.uri().host(), uacAor.uri().user(), uacPasswd);
-	}
+		resip::Log::initialize(resip::Log::Cout, resip::Log::Stack, resip::Data{"cliphone"});
 
-	if (useOutbound)
-	{
-		dum->getMasterProfile()->setOutboundProxy(outboundUri);
-		dum->getMasterProfile()->addSupportedOptionTag(resip::Token(resip::Symbols::Outbound));
-	}
+		auto doReg = false;
+		resip::Data uacPasswd;
+		resip::Data uasPasswd;
+		auto useOutbound = false;
+		resip::Uri outboundUri;
 
-	dum->getMasterProfile()->setDefaultFrom(uacAor);
+		auto uacAor = resip::NameAddr{resip::Data{"sip:"} + m_call_config.from_user.c_str() + "@" + m_call_config.from_domain.c_str()};
+		auto uasAor = resip::NameAddr{resip::Data{"sip:"} + m_call_config.to_user.c_str() + "@" + m_call_config.to_domain.c_str()};
 
-	auto uacShutdownHandler = DUMShutdownHandler{};
+		//set up UAC
+		auto stackUac = resip::SipStack{};
+		stackUac.addTransport(m_config.transport, m_config.port);
 
-	bool startedCallFlow = false;
-	bool startedShutdown = false;
-	while (not uacShutdownHandler.dumShutDown)
-	{
-		if (not uacShutdownHandler.dumShutDown)
+		auto dum = std::make_unique<resip::DialogUsageManager>(stackUac);
+		dum->setMasterProfile(std::make_shared<resip::MasterProfile>());
+		dum->setClientAuthManager(std::make_unique<resip::ClientAuthManager>());
+
+		auto agent = sip_agent{};
+		dum->setInviteSessionHandler(&agent);
+		dum->addOutOfDialogHandler(resip::OPTIONS, &agent);
+
+		dum->setAppDialogSetFactory(std::make_unique<resip::AppDialogSetFactory>());//app_dialog_set_factory>());
+
+		if (doReg)
 		{
-			stackUac.process(50);
-			while (dum->process())
+			dum->getMasterProfile()->setDigestCredential(uacAor.uri().host(), uacAor.uri().user(), uacPasswd);
+		}
+
+		if (useOutbound)
+		{
+			dum->getMasterProfile()->setOutboundProxy(outboundUri);
+			dum->getMasterProfile()->addSupportedOptionTag(resip::Token(resip::Symbols::Outbound));
+		}
+
+		dum->getMasterProfile()->setDefaultFrom(uacAor);
+
+		auto uacShutdownHandler = DUMShutdownHandler{};
+
+		//
+		bool startedCallFlow = false;
+		bool startedShutdown = false;
+		auto inv = std::shared_ptr<resip::SipMessage>{};
+		while (not uacShutdownHandler.dumShutDown)
+		{
+			if (not uacShutdownHandler.dumShutDown)
 			{
+				stackUac.process(50);
+				while (dum->process())
+				{
+				}
+			}
+
+			if (not startedCallFlow)
+			{
+				inv = dum->makeInviteSession(uasAor, agent.mSdp.get());//, ads.release());
+				dum->send(inv);
+				startedCallFlow = true;
+			}
+
+			if (m_should_stop || agent.done)
+			{
+				if (not startedShutdown)
+				{
+					if (auto adsh = dum->findAppDialogSet(resip::DialogSetId{*inv}); adsh.isValid())
+					{
+						adsh->end();
+					}
+					dum->shutdown(&uacShutdownHandler);
+					startedShutdown = true;				
+				}
 			}
 		}
+	};
 
-		if (not startedCallFlow)
-		{
-			startedCallFlow = true;
-			dum->send(dum->makeInviteSession(uasAor, agent.mSdp.get()));
-		}
-
-		if ((should_stop || agent.done) && !startedShutdown)
-		{
-			dum->shutdown(&uacShutdownHandler);
-			startedShutdown = true;
-		}
-	}
+    m_agent_thread = std::thread{loop};
 }
 
 } // namespace cliph:sip

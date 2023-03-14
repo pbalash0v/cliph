@@ -6,28 +6,22 @@
 #include <atomic>
 //
 #include "audio_engine.hpp"
-#include "uac.hpp"
+#include "sip_agent.hpp"
+
 #include "sdp.hpp"
 
 
 int main(int argc, char** argv)
 {
     cliph::audio::engine::get().init();
-    //
-    auto should_stop = std::atomic_bool{false};
-    auto uac_thread = std::thread{[&]()
-    {
-        //cliph::sip::run(should_stop);
-        std::printf("sip agent thread ended\n");
-    }};
-    //cliph::audio::engine::get().start();
-    //
+    cliph::sip::agent::get().run(
+        [&](){ cliph::audio::engine::get().start(); }
+        ,[&](){ cliph::audio::engine::get().stop(); }
+    );
     std::printf("Press Enter to stop...\n");
     getchar();
     std::printf("Terminating...\n");
-    should_stop = true;
-
-    uac_thread.join();
+    cliph::sip::agent::get().stop();
 
     return 0;
 }

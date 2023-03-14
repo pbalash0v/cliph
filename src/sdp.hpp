@@ -18,7 +18,6 @@ const auto* const k_ip_addr = "127.0.0.1";
 
 inline resip::Data get(std::string ip_addr = k_ip_addr)
 {
-
 	auto origin = SdpContents::Session::Origin{"-", 0, 1, SdpContents::IP4, "0.0.0.0"};
 	auto session = SdpContents::Session{0, origin, "cliph"};
 	session.connection() = SdpContents::Session::Connection(SdpContents::IP4, ip_addr.c_str());

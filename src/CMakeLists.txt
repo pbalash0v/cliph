@@ -13,9 +13,11 @@ set(TARGET_NAME ${PROJECT_NAME})
 add_executable(${TARGET_NAME})
 target_sources(${TARGET_NAME} PRIVATE
 	main.cpp
-	uac.cpp
 	audio_engine.cpp
+	sip_agent.cpp
 )
+add_subdirectory(rtp)
+#
 target_link_libraries(${TARGET_NAME} PRIVATE
 	${CMAKE_DL_LIBS}
 	Threads::Threads

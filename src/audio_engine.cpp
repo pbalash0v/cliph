@@ -7,11 +7,12 @@
 //
 #define MINIAUDIO_IMPLEMENTATION
 #include "audio_engine.hpp"
+#include "rtp_stream.hpp"
 
 namespace
 {
-constexpr const auto k_sample_rate = 48000u;
-constexpr const auto k_channel_count = 1;
+constexpr const auto k_audio_device_sample_rate = 48000u;
+constexpr const auto k_audio_device_channel_count = 1;
 } //namespace
 
 namespace
@@ -20,7 +21,7 @@ namespace
 auto* get_opus_enc()
 {
     int error{};
-    auto* e = opus_encoder_create(k_sample_rate, k_channel_count, OPUS_APPLICATION_VOIP, &error);
+    auto* e = opus_encoder_create(k_audio_device_sample_rate, k_audio_device_channel_count, OPUS_APPLICATION_VOIP, &error);
     
     if (error != OPUS_OK)
     {
@@ -92,30 +93,39 @@ auto enumerate(ma_context& context)
 struct user_data final
 {
 	OpusEncoder* opus_enc_ctx;
-	ma_encoder* ma_enc;
+	cliph::rtp::stream rtp_stream;
+	std::array<unsigned char, 4096> buff;
 };
 auto u_d = user_data{};
-
+constexpr const auto kPeriodSizeInFrames = 0u;
+constexpr const auto kPeriodSizeInMilliseconds = 20u;
+//
 void data_callback(ma_device* pDevice, void* /*pOutput*/, const void* pInput, ma_uint32 frameCount)
 {
 	user_data* u_d = (user_data*)pDevice->pUserData;
-
-    [[maybe_unused]] auto* pEncoder = u_d->ma_enc;
 	auto* opus_ctx = u_d->opus_enc_ctx;
+	auto& packet_buff = u_d->buff;
+	auto& rtp_stream = u_d->rtp_stream;
 
-    //ma_encoder_write_pcm_frames(pEncoder, pInput, frameCount, NULL);
-    auto packet_buff = std::array<unsigned char, 4096>{};
-    if (auto len = opus_encode(opus_ctx, (const opus_int16*)pInput, frameCount, packet_buff.data(), packet_buff.size()); len < 0)
+	rtp_stream.advance(96, cliph::rtp::stream::duration_type{kPeriodSizeInMilliseconds});
+	auto* pkt_data_start = static_cast<unsigned char*>(rtp_stream.fill(packet_buff.data(), packet_buff.size()));
+
+	const auto buf_len_remains = packet_buff.size() - (pkt_data_start - packet_buff.data());
+    //
+    if (auto encoded = opus_encode(opus_ctx, (const opus_int16*)pInput, frameCount, pkt_data_start, buf_len_remains); encoded < 0)
     { 
-        std::cerr << get_opus_err_str(len) << '\n';
-    }
-    else if (len <= 2)
-    {
-        std::cerr << "DTX" << '\n';   
+        std::cerr << get_opus_err_str(encoded) << '\n';
+        return;
     }
     else
     {
-        std::cerr << "frameCount: " << frameCount  << ", len: " << len << '\n';    
+		//static auto talkspurt = true;
+
+	    if (encoded > 2) // not dtx
+	    {
+	    	const auto total_pkt_len = pkt_data_start - packet_buff.data() + encoded;
+	    	// /rtp_stream.write(packet_buff.data(), total_pkt_len);
+	    }  	
     }
 }
 
@@ -125,7 +135,7 @@ void data_callback(ma_device* pDevice, void* /*pOutput*/, const void* pInput, ma
 namespace cliph::audio
 {
 
-engine& engine::get()
+engine& engine::get() noexcept
 {
 	static auto instance = engine{};
 	return instance;
@@ -134,9 +144,11 @@ engine& engine::get()
 engine& engine::init()
 {
 	u_d.opus_enc_ctx = get_opus_enc();
+	u_d.rtp_stream = cliph::rtp::stream{};
+	u_d.rtp_stream.payloads().emplace(96, 48000u); // OPUS
 
 	enumerate_and_select();
-	
+
 	return *this;
 }
 
@@ -169,9 +181,10 @@ void engine::enumerate_and_select()
     auto deviceConfig = ma_device_config_init(ma_device_type_capture);
     deviceConfig.capture.pDeviceID = &pCaptureDeviceInfos[m_dev_id].id;
     deviceConfig.capture.format   = ma_format_s16;
-    deviceConfig.capture.channels = k_channel_count;
-    deviceConfig.sampleRate       = k_sample_rate;
-    deviceConfig.periodSizeInMilliseconds = 20u;
+    deviceConfig.capture.channels = k_audio_device_channel_count;
+    deviceConfig.sampleRate       = k_audio_device_sample_rate;
+    deviceConfig.periodSizeInFrames = kPeriodSizeInFrames;
+    deviceConfig.periodSizeInMilliseconds = kPeriodSizeInMilliseconds;
     deviceConfig.dataCallback     = data_callback;
     deviceConfig.pUserData        = &u_d;
 
@@ -194,6 +207,14 @@ void engine::enumerate_and_select()
 void engine::start()
 {
     if (auto result = ma_device_start(&m_device); result != MA_SUCCESS)
+    {
+        throw std::runtime_error{"Failed to start device"};
+    }
+}
+
+void engine::stop()
+{
+    if (auto result = ma_device_stop(&m_device); result != MA_SUCCESS)
     {
         throw std::runtime_error{"Failed to start device"};
     }
