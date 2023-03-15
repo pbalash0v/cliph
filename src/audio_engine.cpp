@@ -1,3 +1,7 @@
+#include "asio/ip/address_v4.hpp"
+#include "asio/ip/udp.hpp"
+#include <cstdint>
+#include <memory>
 #include <stdexcept>
 #include <iostream>
 #include <tuple>
@@ -8,6 +12,9 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "audio_engine.hpp"
 #include "rtp_stream.hpp"
+#include "rtp.hpp"
+#include "net.hpp"
+#include "sdp.hpp"
 
 namespace
 {
@@ -66,24 +73,24 @@ auto enumerate(ma_context& context)
         throw std::runtime_error{"Failed to initialize context"};
     }
 
-    ma_device_info* pPlaybackDeviceInfos;
-    ma_uint32 playbackDeviceCount;
-    ma_uint32 captureDeviceCount;
-    ma_device_info* pCaptureDeviceInfos;
-    ma_uint32 iDevice;
-    auto result = ma_context_get_devices(&context, &pPlaybackDeviceInfos, &playbackDeviceCount, &pCaptureDeviceInfos, &captureDeviceCount);
-    if (result != MA_SUCCESS) {
+    ma_device_info* pPlaybackDeviceInfos{};
+    ma_uint32 playbackDeviceCount{};
+    ma_uint32 captureDeviceCount{};
+    ma_device_info* pCaptureDeviceInfos{};
+    ma_uint32 iDevice{};
+    if (auto result = ma_context_get_devices(&context, &pPlaybackDeviceInfos, &playbackDeviceCount, &pCaptureDeviceInfos, &captureDeviceCount); result != MA_SUCCESS)
+    {
         throw std::runtime_error{"Failed to retrieve device information"};
     }
 
-    printf("Playback Devices\n");
+    std::printf("Playback Devices\n");
     for (iDevice = 0; iDevice < playbackDeviceCount; ++iDevice) {
-        printf("    %u: %s\n", iDevice, pPlaybackDeviceInfos[iDevice].name);
+        std::printf("    %u: %s\n", iDevice, pPlaybackDeviceInfos[iDevice].name);
     }
-    printf("\n");
-    printf("Capture Devices\n");
+    std::printf("\n");
+    std::printf("Capture Devices\n");
     for (iDevice = 0; iDevice < captureDeviceCount; ++iDevice) {
-        printf("    %u: %s\n", iDevice, pCaptureDeviceInfos[iDevice].name);
+        std::printf("    %u: %s\n", iDevice, pCaptureDeviceInfos[iDevice].name);
     }
 
     return std::tuple{captureDeviceCount, pCaptureDeviceInfos};
@@ -94,6 +101,8 @@ struct user_data final
 {
 	OpusEncoder* opus_enc_ctx;
 	cliph::rtp::stream rtp_stream;
+	std::unique_ptr<cliph::net::socket> sock_ptr;
+	asio::ip::udp::endpoint remote;
 	std::array<unsigned char, 4096> buff;
 };
 auto u_d = user_data{};
@@ -106,26 +115,34 @@ void data_callback(ma_device* pDevice, void* /*pOutput*/, const void* pInput, ma
 	auto* opus_ctx = u_d->opus_enc_ctx;
 	auto& packet_buff = u_d->buff;
 	auto& rtp_stream = u_d->rtp_stream;
+	auto& sock = *(u_d->sock_ptr);
+	const auto& remote = u_d->remote;
 
-	rtp_stream.advance(96, cliph::rtp::stream::duration_type{kPeriodSizeInMilliseconds});
+	rtp_stream.advance_ts(96, cliph::rtp::stream::duration_type{kPeriodSizeInMilliseconds});
 	auto* pkt_data_start = static_cast<unsigned char*>(rtp_stream.fill(packet_buff.data(), packet_buff.size()));
 
 	const auto buf_len_remains = packet_buff.size() - (pkt_data_start - packet_buff.data());
     //
     if (auto encoded = opus_encode(opus_ctx, (const opus_int16*)pInput, frameCount, pkt_data_start, buf_len_remains); encoded < 0)
-    { 
+    {
         std::cerr << get_opus_err_str(encoded) << '\n';
         return;
     }
     else
     {
 		//static auto talkspurt = true;
-
 	    if (encoded > 2) // not dtx
 	    {
+	    	rtp_stream.advance_seq_num();
 	    	const auto total_pkt_len = pkt_data_start - packet_buff.data() + encoded;
-	    	// /rtp_stream.write(packet_buff.data(), total_pkt_len);
-	    }  	
+#if 0	    	
+	    	std::cerr << "total_pkt_len: " << total_pkt_len << ", encoded: " << encoded << ", frameCount: " << frameCount << '\n';
+	    	auto rtp_pkt = cliph::rtp::rtp{packet_buff.data(), static_cast<size_t>(total_pkt_len)};
+	    	assert(rtp_pkt);
+	    	std::cerr << rtp_pkt << '\n';
+#endif
+	    	sock.write(remote, packet_buff.data(), total_pkt_len);
+	    }
     }
 }
 
@@ -144,12 +161,27 @@ engine& engine::get() noexcept
 engine& engine::init()
 {
 	u_d.opus_enc_ctx = get_opus_enc();
+	//
+	constexpr const auto k_opus_dyn_pt = 96u;
+	constexpr const auto k_opus_rtp_clock = 48000u;
 	u_d.rtp_stream = cliph::rtp::stream{};
-	u_d.rtp_stream.payloads().emplace(96, 48000u); // OPUS
-
+	u_d.rtp_stream.payloads().emplace(k_opus_dyn_pt, k_opus_rtp_clock);
+	//
+	u_d.sock_ptr = std::make_unique<cliph::net::socket>();
+	//
 	enumerate_and_select();
 
 	return *this;
+}
+
+void engine::sink(std::string_view ip, std::uint16_t port)
+{
+	u_d.remote = asio::ip::udp::endpoint{asio::ip::make_address_v4(ip), port};
+}
+
+std::string engine::description() const
+{
+	return cliph::sdp::get("127.0.0.1", u_d.sock_ptr->port()).c_str();
 }
 
 engine::~engine()

@@ -5,6 +5,7 @@
 #include <thread>
 #include <atomic>
 //
+#include "audio_engine.hpp"
 #include "resip/stack/SipStack.hxx"
 
 
@@ -28,12 +29,8 @@ struct call_config
 class agent final
 {
 public:
-	using on_answer_cback_type = std::function<void(void)>;
-	using on_hangup_cback_type = std::function<void(void)>;
-
-public:
 	static agent& get() noexcept;
-	void run(on_answer_cback_type&&, on_hangup_cback_type&&);
+	void run();
 	void stop() noexcept;
 	~agent();
 

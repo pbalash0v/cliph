@@ -39,16 +39,18 @@ stream::stream()
 {
 }
 
-void stream::advance(pt_type pt, duration_type duration)
+void stream::advance_ts(pt_type pt, duration_type duration)
 {
 	m_pt = pt;
-
-	++m_seq_num;
-
 	// e.g. this should be 8 for PCM 8000 samples/second,
 	// 48 for OPUS 48000 samples/second etc
 	const auto samples_per_ms = m_payloads.at(pt).m_clock / std::chrono::milliseconds{1000}.count();
 	m_ts += samples_per_ms * duration.count();
+}
+
+void stream::advance_seq_num()
+{
+	++m_seq_num;
 }
 
 void* stream::fill(void* start, std::size_t len, bool mark)
@@ -65,6 +67,7 @@ void* stream::fill(void* start, std::size_t len, bool mark)
 
 	return rtp_pkt.data();
 }
+
 
 std::ostream& stream::dump(std::ostream& ostr) const
 {

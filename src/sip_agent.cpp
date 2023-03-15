@@ -1,3 +1,4 @@
+#include <chrono>
 #include <memory>
 #include <sstream>
 #include <iostream>
@@ -5,6 +6,7 @@
 //
 #include <time.h>
 //
+#include "audio_engine.hpp"
 #include "resip/dum/AppDialog.hxx"
 #include "resip/dum/AppDialogSet.hxx"
 #include "resip/dum/AppDialogSetFactory.hxx"
@@ -29,6 +31,7 @@
 #include "rutil/Random.hxx"
 //
 #include "sip_agent.hpp"
+#include "sdp.hpp"
 
 namespace
 {
@@ -49,32 +52,17 @@ struct DUMShutdownHandler : public resip::DumShutdownHandler
 
 class sip_agent : public resip::InviteSessionHandler, public resip::OutOfDialogHandler
 {
-public:
+public:	
 	bool done {false};
 
-	std::unique_ptr<resip::SdpContents> mSdp;
-	std::unique_ptr<resip::HeaderFieldValue> hfv;
-	std::unique_ptr<resip::Data> txt;
-
+	resip::SdpContents mSdp;
 public:
 	sip_agent()
 	{
-		txt = std::make_unique<resip::Data>("v=0\r\n"
-											"o=1900 369696545 369696545 IN IP4 192.168.2.15\r\n"
-											"s=X-Lite\r\n"
-											"c=IN IP4 192.168.2.15\r\n"
-											"t=0 0\r\n"
-											"m=audio 8000 RTP/AVP 8 3 98 97 101\r\n"
-											"a=rtpmap:8 pcma/8000\r\n"
-											"a=rtpmap:3 gsm/8000\r\n"
-											"a=rtpmap:98 iLBC\r\n"
-											"a=rtpmap:97 speex/8000\r\n"
-											"a=rtpmap:101 telephone-event/8000\r\n"
-											"a=fmtp:101 0-15\r\n");
-
-		hfv = std::make_unique<resip::HeaderFieldValue>(txt->data(), (unsigned int)txt->size());
-		resip::Mime type("application", "sdp");
-		mSdp = std::make_unique<resip::SdpContents>(*hfv, type);
+		auto txt = cliph::audio::engine::get().description();
+		auto hfv = resip::HeaderFieldValue{txt.data(), (unsigned int)txt.size()};
+		auto type = resip::Mime{"application", "sdp"};
+		mSdp = resip::SdpContents{hfv, type};
 	}
 
 public:
@@ -106,6 +94,7 @@ public:
 	void onConnected(resip::ClientInviteSessionHandle, const resip::SipMessage& msg) override
 	{
 		std::cout << "ClientInviteSession-onConnected - " << msg.brief() << std::endl;
+		cliph::audio::engine::get().start();
 	}
 
 	void onStaleCallTimeout(resip::ClientInviteSessionHandle) override
@@ -131,21 +120,26 @@ public:
 			std::cout << msg->brief() << std::endl;
 		}
 		std::cout << std::endl;
-
+		//
+		cliph::audio::engine::get().stop();
 		done = true;
 	}
 
-	void onAnswer(resip::InviteSessionHandle, const resip::SipMessage&, const resip::SdpContents&) override
+	void onAnswer(resip::InviteSessionHandle, const resip::SipMessage&, const resip::SdpContents& sdp) override
 	{
 		std::cout << "InviteSession-onAnswer(SDP)" << std::endl;
 		//sdp->encode(std::cout);
+		if (auto list = sdp.session().media().front().getConnections(); not list.empty())
+		{
+			cliph::audio::engine::get().sink(list.front().getAddress().c_str(), sdp.session().media().front().port());
+		}
 	}
 
 	void onOffer(resip::InviteSessionHandle is, const resip::SipMessage&, const resip::SdpContents& sdp) override
 	{
 		std::cout << "InviteSession-onOffer(SDP)" << std::endl;
 		//sdp->encode(std::cout);
-		is->provideAnswer(sdp);
+		//is->provideAnswer(sdp);
 	}
 
 	void onEarlyMedia(resip::ClientInviteSessionHandle, const resip::SipMessage&, const resip::SdpContents&) override
@@ -272,12 +266,12 @@ public:
 
 namespace cliph::sip
 {
+
 agent& agent::get() noexcept
 {
 	static auto instance = agent{};
 	return instance;
 }
-
 
 void agent::stop() noexcept
 {
@@ -293,11 +287,11 @@ agent::~agent()
     }
 }
 
-void agent::run(on_answer_cback_type&& on_ans_cb, on_hangup_cback_type&& on_hang_cb)
+void agent::run()
 {
-	const auto loop = [&, on_ans_cb=std::move(on_ans_cb), on_hang_cb=std::move(on_hang_cb)]()
+	auto loop = [&]() mutable
 	{
-		resip::Log::initialize(resip::Log::Cout, resip::Log::Stack, resip::Data{"cliphone"});
+		resip::Log::initialize(resip::Log::Cout, resip::Log::Debug, resip::Data{"cliphone"});
 
 		auto doReg = false;
 		resip::Data uacPasswd;
@@ -313,7 +307,9 @@ void agent::run(on_answer_cback_type&& on_ans_cb, on_hangup_cback_type&& on_hang
 		stackUac.addTransport(m_config.transport, m_config.port);
 
 		auto dum = std::make_unique<resip::DialogUsageManager>(stackUac);
-		dum->setMasterProfile(std::make_shared<resip::MasterProfile>());
+		auto profile = std::make_shared<resip::MasterProfile>();
+		profile->setUserAgent("cliph");
+		dum->setMasterProfile(std::move(profile));
 		dum->setClientAuthManager(std::make_unique<resip::ClientAuthManager>());
 
 		auto agent = sip_agent{};
@@ -353,7 +349,7 @@ void agent::run(on_answer_cback_type&& on_ans_cb, on_hangup_cback_type&& on_hang
 
 			if (not startedCallFlow)
 			{
-				inv = dum->makeInviteSession(uasAor, agent.mSdp.get());//, ads.release());
+				inv = dum->makeInviteSession(uasAor, &agent.mSdp);
 				dum->send(inv);
 				startedCallFlow = true;
 			}
@@ -373,7 +369,7 @@ void agent::run(on_answer_cback_type&& on_ans_cb, on_hangup_cback_type&& on_hang
 		}
 	};
 
-    m_agent_thread = std::thread{loop};
+    m_agent_thread = std::thread{std::move(loop)};
 }
 
 } // namespace cliph:sip

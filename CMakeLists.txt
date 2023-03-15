@@ -12,6 +12,7 @@ include(setup_build)
 include(fetch_miniaudio)
 include(fetch_OPUS)
 include(fetch_reSIP)
+include(fetch_asio)
 
 add_subdirectory(src)
 

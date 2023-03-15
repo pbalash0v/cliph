@@ -1,3 +1,4 @@
+#include <cassert>
 #include <cstdint>
 #include <iostream>
 #include <stdexcept>
@@ -73,10 +74,14 @@ void rtp::csrc_count(std::uint8_t count)
 //
 void rtp::ver(std::uint8_t v) noexcept
 {
-	constexpr const auto k_version_2_set = 0b0100'0000u;
-	constexpr const auto k_version_2_clear = 0b0111'1111u;
-	*(static_cast<octet_type*>(m_start)) &= k_version_2_clear;
-	*(static_cast<octet_type*>(m_start)) |= k_version_2_set;
+	constexpr const auto k_version_2_set = 0b1000'0000u;
+	constexpr const auto k_version_2_clear = 0b1011'1111u;
+
+	auto& octet = *(static_cast<octet_type*>(m_start));
+	octet |= k_version_2_set;
+	octet &= k_version_2_clear;
+
+	assert(*this);
 }
 //
 bool rtp::is_padded() const noexcept
@@ -86,10 +91,12 @@ bool rtp::is_padded() const noexcept
 }
 void rtp::pad(bool p) noexcept
 {
+	assert(*this);
 	constexpr const auto k_padding_mask_set = 0b0010'0000u;
 	constexpr const auto k_padding_mask_clear = 0b1101'1111u;
 	auto& octet = *static_cast<octet_type*>(m_start);
 	p ? (octet |= k_padding_mask_set) : (octet &= k_padding_mask_clear);
+	assert(*this);	
 }
 //
 bool rtp::has_extensions() const noexcept
@@ -100,11 +107,13 @@ bool rtp::has_extensions() const noexcept
 }
 void rtp::extensions(bool x) noexcept
 {
+	assert(*this);
 	constexpr const auto k_ext_mask_set = 0b0001'0000u;
 	constexpr const auto k_ext_mask_clear = 0b1110'1111u;
 
 	auto& octet = *static_cast<octet_type*>(m_start);
 	x ? (octet |= k_ext_mask_set) : (octet &= k_ext_mask_clear);
+	assert(*this);
 }
 //
 bool rtp::has_mark() const noexcept
@@ -114,10 +123,12 @@ bool rtp::has_mark() const noexcept
 }
 void rtp::mark(bool m) noexcept
 {
+	assert(*this);
 	constexpr const auto k_mark_mask_set = 0b1000'0000u;
 	constexpr const auto k_mark_mask_clear = 0b0111'1111u;
 	auto& octet = *(static_cast<octet_type*>(m_start) + 1u);
 	m ? (octet |= k_mark_mask_set) : (octet &= k_mark_mask_clear);
+	assert(*this);
 }
 //
 std::uint8_t rtp::pt() const noexcept
@@ -177,8 +188,9 @@ void rtp::ssrc(std::uint32_t ssrc_val) noexcept
 rtp::operator bool() const noexcept
 {
 	constexpr const auto k_version_mask = 0b1100'0000u;
-	constexpr const auto k_version_2 = 0b0100'0000u;
-	auto octet_val = *(static_cast<octet_type*>(m_start)) & k_version_mask;
+	constexpr const auto k_version_2 = 0b1000'0000u;
+	auto octet_val = *(static_cast<octet_type*>(m_start));
+	octet_val &= k_version_mask;
 	return octet_val == k_version_2;
 }
 

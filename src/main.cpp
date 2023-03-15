@@ -11,17 +11,14 @@
 #include "sdp.hpp"
 
 
-int main(int argc, char** argv)
+int main(int /*argc*/, char** /*argv*/)
 {
     cliph::audio::engine::get().init();
-    cliph::sip::agent::get().run(
-        [&](){ cliph::audio::engine::get().start(); }
-        ,[&](){ cliph::audio::engine::get().stop(); }
-    );
+    cliph::sip::agent::get().run();
+    //
     std::printf("Press Enter to stop...\n");
     getchar();
     std::printf("Terminating...\n");
+    //
     cliph::sip::agent::get().stop();
-
-    return 0;
 }

@@ -2,6 +2,9 @@
 #define audio_engine_hpp
 
 //
+#include <string_view>
+#include <cstdint>
+//
 #include <miniaudio.h>
 //
 
@@ -11,12 +14,17 @@ namespace cliph::audio
 class engine final
 {
 public:
-	static engine& get() noexcept;	
+	static engine& get() noexcept;
+
 public:
 	~engine();
+
+public:
 	engine& init();
 	void start();
 	void stop();
+	void sink(std::string_view, std::uint16_t);
+	std::string description() const;
 
 private:
 	unsigned m_dev_id{};

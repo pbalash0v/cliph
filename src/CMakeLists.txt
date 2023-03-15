@@ -15,10 +15,12 @@ target_sources(${TARGET_NAME} PRIVATE
 	main.cpp
 	audio_engine.cpp
 	sip_agent.cpp
+	net.cpp
 )
 add_subdirectory(rtp)
 #
 target_link_libraries(${TARGET_NAME} PRIVATE
+	asio::asio
 	${CMAKE_DL_LIBS}
 	Threads::Threads
 	miniaudio
