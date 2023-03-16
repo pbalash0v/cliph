@@ -27,7 +27,6 @@ public:
 	std::string description() const;
 
 private:
-	unsigned m_dev_id{};
     ma_device m_device;
     ma_context m_context;
     ma_encoder m_encoder;

@@ -36,9 +36,8 @@ set_target_properties(${TARGET_NAME} PROPERTIES
 )
 target_compile_options(${TARGET_NAME} PRIVATE
 	$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall> #-Wextra -pedantic># -Werror>
-#	$<$<CXX_COMPILER_ID:Clang>:-fcoroutines-ts -stdlib=libc++>
-#	$<$<CXX_COMPILER_ID:GNU>:-fcoroutines>
 )
 target_link_options(${TARGET_NAME} PRIVATE
 #	$<BUILD_INTERFACE:$<$<CXX_COMPILER_ID:Clang>:-stdlib=libc++>>
 )
+

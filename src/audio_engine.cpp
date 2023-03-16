@@ -1,7 +1,9 @@
 #include "asio/ip/address_v4.hpp"
 #include "asio/ip/udp.hpp"
+#include <cassert>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <iostream>
 #include <tuple>
@@ -15,6 +17,7 @@
 #include "rtp.hpp"
 #include "net.hpp"
 #include "sdp.hpp"
+#include "utils.hpp"
 
 namespace
 {
@@ -38,6 +41,19 @@ auto* get_opus_enc()
     if (auto ret = opus_encoder_ctl(e, OPUS_SET_DTX(1)); ret != OPUS_OK)
     {
        throw std::runtime_error{"OPUS_SET_DTX failed"};
+    }
+
+    return e;
+}
+
+auto* get_opus_dec()
+{
+    int error{};
+    auto* e = opus_decoder_create(k_audio_device_sample_rate, k_audio_device_channel_count, &error);
+    
+    if (error != OPUS_OK)
+    {
+        throw std::runtime_error{"opus_encoder_create failed"};
     }
 
     return e;
@@ -73,57 +89,63 @@ auto enumerate(ma_context& context)
         throw std::runtime_error{"Failed to initialize context"};
     }
 
-    ma_device_info* pPlaybackDeviceInfos{};
-    ma_uint32 playbackDeviceCount{};
-    ma_uint32 captureDeviceCount{};
-    ma_device_info* pCaptureDeviceInfos{};
-    ma_uint32 iDevice{};
+	ma_device_info* pPlaybackDeviceInfos{};
+	ma_uint32 playbackDeviceCount{};
+	ma_uint32 captureDeviceCount{};
+	ma_device_info* pCaptureDeviceInfos{};
+	ma_uint32 iDevice{};
     if (auto result = ma_context_get_devices(&context, &pPlaybackDeviceInfos, &playbackDeviceCount, &pCaptureDeviceInfos, &captureDeviceCount); result != MA_SUCCESS)
-    {
-        throw std::runtime_error{"Failed to retrieve device information"};
-    }
+	{
+		throw std::runtime_error{"Failed to retrieve device information"};
+	}
 
-    std::printf("Playback Devices\n");
-    for (iDevice = 0; iDevice < playbackDeviceCount; ++iDevice) {
-        std::printf("    %u: %s\n", iDevice, pPlaybackDeviceInfos[iDevice].name);
-    }
-    std::printf("\n");
-    std::printf("Capture Devices\n");
-    for (iDevice = 0; iDevice < captureDeviceCount; ++iDevice) {
-        std::printf("    %u: %s\n", iDevice, pCaptureDeviceInfos[iDevice].name);
-    }
+	std::printf("Playback Devices\n");
+	for (iDevice = 0; iDevice < playbackDeviceCount; ++iDevice)
+	{
+		std::printf("    %u: %s\n", iDevice, pPlaybackDeviceInfos[iDevice].name);
+	}
+	std::printf("\n");
+	std::printf("Capture Devices\n");
+	for (iDevice = 0; iDevice < captureDeviceCount; ++iDevice)
+	{
+		std::printf("    %u: %s\n", iDevice, pCaptureDeviceInfos[iDevice].name);
+	}
 
-    return std::tuple{captureDeviceCount, pCaptureDeviceInfos};
+    return std::tuple{playbackDeviceCount-1, pPlaybackDeviceInfos, captureDeviceCount-1, pCaptureDeviceInfos};
 }
 
 
 struct user_data final
 {
-	OpusEncoder* opus_enc_ctx;
+	OpusEncoder* opus_enc_ctx{};
+	OpusDecoder* opus_dec_ctx{};
 	cliph::rtp::stream rtp_stream;
 	std::unique_ptr<cliph::net::socket> sock_ptr;
 	asio::ip::udp::endpoint remote;
 	std::array<unsigned char, 4096> buff;
+	cliph::utils::thread_safe_array recv_buf;
 };
 auto u_d = user_data{};
 constexpr const auto kPeriodSizeInFrames = 0u;
 constexpr const auto kPeriodSizeInMilliseconds = 20u;
 //
-void data_callback(ma_device* pDevice, void* /*pOutput*/, const void* pInput, ma_uint32 frameCount)
+void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
 	user_data* u_d = (user_data*)pDevice->pUserData;
-	auto* opus_ctx = u_d->opus_enc_ctx;
-	auto& packet_buff = u_d->buff;
+	auto* opus_enc = u_d->opus_enc_ctx;
+	auto* opus_dec = u_d->opus_dec_ctx;
+	auto& pkt_buff = u_d->buff;
 	auto& rtp_stream = u_d->rtp_stream;
 	auto& sock = *(u_d->sock_ptr);
 	const auto& remote = u_d->remote;
+	auto& recv_buf = u_d->recv_buf;
 
 	rtp_stream.advance_ts(96, cliph::rtp::stream::duration_type{kPeriodSizeInMilliseconds});
-	auto* pkt_data_start = static_cast<unsigned char*>(rtp_stream.fill(packet_buff.data(), packet_buff.size()));
+	auto* pkt_data_start = static_cast<unsigned char*>(rtp_stream.fill(pkt_buff.data(), pkt_buff.size()));
 
-	const auto buf_len_remains = packet_buff.size() - (pkt_data_start - packet_buff.data());
+	const auto buf_len_remains = pkt_buff.size() - (pkt_data_start - pkt_buff.data());
     //
-    if (auto encoded = opus_encode(opus_ctx, (const opus_int16*)pInput, frameCount, pkt_data_start, buf_len_remains); encoded < 0)
+    if (auto encoded = ::opus_encode(opus_enc, (const opus_int16*)pInput, frameCount, pkt_data_start, buf_len_remains); encoded < 0)
     {
         std::cerr << get_opus_err_str(encoded) << '\n';
         return;
@@ -134,15 +156,46 @@ void data_callback(ma_device* pDevice, void* /*pOutput*/, const void* pInput, ma
 	    if (encoded > 2) // not dtx
 	    {
 	    	rtp_stream.advance_seq_num();
-	    	const auto total_pkt_len = pkt_data_start - packet_buff.data() + encoded;
-#if 0	    	
+	    	const auto total_pkt_len = pkt_data_start - pkt_buff.data() + encoded;
+#if 0
 	    	std::cerr << "total_pkt_len: " << total_pkt_len << ", encoded: " << encoded << ", frameCount: " << frameCount << '\n';
 	    	auto rtp_pkt = cliph::rtp::rtp{packet_buff.data(), static_cast<size_t>(total_pkt_len)};
 	    	assert(rtp_pkt);
 	    	std::cerr << rtp_pkt << '\n';
 #endif
-	    	sock.write(remote, packet_buff.data(), total_pkt_len);
+	    	sock.write(remote, pkt_buff.data(), total_pkt_len);
 	    }
+    }
+
+    // try playout
+	{
+    	auto lock = std::unique_lock{recv_buf.m_mtx};
+		if (recv_buf.m_is_empty)
+		{
+			std::cerr << "Audio buffer underrun" << '\n';
+			return;
+		}
+#if 0
+		const auto rtp_pkt = cliph::rtp::rtp{recv_buf.m_buffer.data(), recv_buf.m_size};
+		assert(rtp_pkt);
+		std::cerr << rtp_pkt << '\n';
+#endif
+		const auto rtp_pkt = cliph::rtp::rtp{recv_buf.m_buffer.data(), recv_buf.m_size};
+		const auto* rtp_payload_ptr = static_cast<const unsigned char*>(rtp_pkt.data());
+		auto decode_buf = std::array<opus_int16, 2048>{};
+	   	if (auto frame_sz = ::opus_decode(opus_dec, rtp_payload_ptr, rtp_pkt.size(), decode_buf.data(), decode_buf.size(), /*decode_fec*/ 0); frame_sz < 0)
+	   	{
+	        std::cerr << get_opus_err_str(frame_sz) << '\n';
+	   	}
+	   	else
+	   	{
+            MA_COPY_MEMORY(pOutput, decode_buf.data(), frame_sz * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+	   	}
+		recv_buf.m_is_empty = true;
+		recv_buf.m_size = 0;
+		lock.unlock();
+
+		recv_buf.m_cond.notify_one();
     }
 }
 
@@ -161,13 +214,16 @@ engine& engine::get() noexcept
 engine& engine::init()
 {
 	u_d.opus_enc_ctx = get_opus_enc();
+	u_d.opus_dec_ctx = get_opus_dec();
+
 	//
 	constexpr const auto k_opus_dyn_pt = 96u;
 	constexpr const auto k_opus_rtp_clock = 48000u;
 	u_d.rtp_stream = cliph::rtp::stream{};
 	u_d.rtp_stream.payloads().emplace(k_opus_dyn_pt, k_opus_rtp_clock);
 	//
-	u_d.sock_ptr = std::make_unique<cliph::net::socket>();
+	u_d.sock_ptr = std::make_unique<cliph::net::socket>(u_d.recv_buf);
+	u_d.sock_ptr->run();
 	//
 	enumerate_and_select();
 
@@ -186,6 +242,9 @@ std::string engine::description() const
 
 engine::~engine()
 {
+	u_d.recv_buf.m_cond.notify_one();
+	::opus_encoder_destroy(u_d.opus_enc_ctx);
+	::opus_decoder_destroy(u_d.opus_dec_ctx);
     ma_device_uninit(&m_device);
     ma_encoder_uninit(&m_encoder);
     ma_context_uninit(&m_context);
@@ -194,26 +253,39 @@ engine::~engine()
 void engine::enumerate_and_select()
 {
     ///
-    auto [max_cap_dev_id, pCaptureDeviceInfos] = enumerate(m_context);
-    while (true)
+    const auto dev_id_get = [](auto max_dev_id, auto* device_infos)
     {
-        std::cin >> m_dev_id;
-        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-        if (m_dev_id <= max_cap_dev_id)
+        while (true)
         {
-            printf("%u: %s selected for capture\n", m_dev_id, pCaptureDeviceInfos[m_dev_id].name);
-            break;
+            auto dev_id = 0u;
+            std::cin >> dev_id;
+            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+            if (dev_id >= 0 and dev_id <= max_dev_id)
+            {
+                std::printf("%u: %s selected\n", dev_id, device_infos[dev_id].name);
+                return dev_id;
+            }
+            else
+            {
+                std::printf("%u: wrong selection\n", dev_id);
+            }
         }
-        else
-        {
-            printf("%u: wrong selection\n", m_dev_id);
-        }
-    }
+    };
+	auto [max_pb_dev_id, pPlaybackDeviceInfos, max_cap_dev_id, pCaptureDeviceInfos] = enumerate(m_context);
+	//
+    std::printf("Select playback device:\n");
+    const auto pb_dev_id = dev_id_get(max_pb_dev_id, pPlaybackDeviceInfos);
+    std::printf("Select capture device:\n");
+    const auto cap_dev_id = dev_id_get(max_cap_dev_id, pCaptureDeviceInfos);
 
-    auto deviceConfig = ma_device_config_init(ma_device_type_capture);
-    deviceConfig.capture.pDeviceID = &pCaptureDeviceInfos[m_dev_id].id;
+    auto deviceConfig = ma_device_config_init(ma_device_type_duplex);
+    deviceConfig.playback.pDeviceID = &pPlaybackDeviceInfos[pb_dev_id].id;
+    deviceConfig.playback.format   = ma_format_s16;
+    deviceConfig.playback.channels = k_audio_device_channel_count;
+    deviceConfig.capture.pDeviceID = &pCaptureDeviceInfos[cap_dev_id].id;
     deviceConfig.capture.format   = ma_format_s16;
     deviceConfig.capture.channels = k_audio_device_channel_count;
+
     deviceConfig.sampleRate       = k_audio_device_sample_rate;
     deviceConfig.periodSizeInFrames = kPeriodSizeInFrames;
     deviceConfig.periodSizeInMilliseconds = kPeriodSizeInMilliseconds;
@@ -250,6 +322,8 @@ void engine::stop()
     {
         throw std::runtime_error{"Failed to start device"};
     }
+
+    u_d.sock_ptr->stop();
 }
 
 } // namespace cliph::audio

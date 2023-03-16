@@ -5,7 +5,6 @@ project(cliphone
 	LANGUAGES C CXX
 )
 
-
 # pull third pty libs
 list(INSERT CMAKE_MODULE_PATH 0 "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(setup_build)

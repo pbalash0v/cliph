@@ -28,7 +28,7 @@ public:
 	stream();
 
 public:
-	void advance_seq_num();
+	void advance_seq_num() noexcept;
 	void advance_ts(pt_type, duration_type);
 	void* fill(void*, std::size_t, bool mark = false);
 

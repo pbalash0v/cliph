@@ -33,7 +33,7 @@ inline resip::Data get(std::string ip_addr = k_ip_addr, std::uint16_t port = 9)
 #if 0      
 	audio_section.addCodec(SdpContents::Session::Codec::getStaticCodecs().at(8));
 #endif
-      audio_section.addAttribute(SdpContents::Session::Direction::SENDONLY.name());
+      audio_section.addAttribute(SdpContents::Session::Direction::SENDRECV.name());
 	session.addMedium(audio_section);
 	//
 	auto sdp = SdpContents{};

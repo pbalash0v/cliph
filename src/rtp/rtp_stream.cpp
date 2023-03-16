@@ -42,13 +42,13 @@ stream::stream()
 void stream::advance_ts(pt_type pt, duration_type duration)
 {
 	m_pt = pt;
-	// e.g. this should be 8 for PCM 8000 samples/second,
+	// e.g. this would be 8 for PCM 8000 samples/second,
 	// 48 for OPUS 48000 samples/second etc
 	const auto samples_per_ms = m_payloads.at(pt).m_clock / std::chrono::milliseconds{1000}.count();
 	m_ts += samples_per_ms * duration.count();
 }
 
-void stream::advance_seq_num()
+void stream::advance_seq_num() noexcept
 {
 	++m_seq_num;
 }
