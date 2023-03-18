@@ -27,6 +27,7 @@ target_link_libraries(${TARGET_NAME} PRIVATE
 	opus
 	resip
 	dum
+	argh
 )
 set_target_properties(${TARGET_NAME} PROPERTIES
 	CXX_STANDARD 17

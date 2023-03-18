@@ -287,8 +287,10 @@ agent::~agent()
     }
 }
 
-void agent::run()
+void agent::run(const call_config& c_cfg)
 {
+	m_call_config = c_cfg;
+
 	auto loop = [&]() mutable
 	{
 		resip::Log::initialize(resip::Log::Cout, resip::Log::Debug, resip::Data{"cliphone"});
@@ -299,8 +301,8 @@ void agent::run()
 		auto useOutbound = false;
 		resip::Uri outboundUri;
 
-		auto uacAor = resip::NameAddr{resip::Data{"sip:"} + m_call_config.from_user.c_str() + "@" + m_call_config.from_domain.c_str()};
-		auto uasAor = resip::NameAddr{resip::Data{"sip:"} + m_call_config.to_user.c_str() + "@" + m_call_config.to_domain.c_str()};
+		auto uacAor = resip::NameAddr{resip::Data{m_call_config.from.c_str()}};
+		auto uasAor = resip::NameAddr{resip::Data{m_call_config.to.c_str()}};
 
 		//set up UAC
 		auto stackUac = resip::SipStack{};

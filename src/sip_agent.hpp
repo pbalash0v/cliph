@@ -20,17 +20,17 @@ struct config
 
 struct call_config
 {
-	std::string from_user{"caller"};
-	std::string from_domain{"localhost"};
-	std::string to_user{"callee"};
-	std::string to_domain{"localhost"};
+	std::string from{"sip:caller@localhost"};
+	std::string to{"sip:callee@localhost"};
+	std::string auth; //TODO
+	std::string pswd; //TODO
 };
 
 class agent final
 {
 public:
 	static agent& get() noexcept;
-	void run();
+	void run(const call_config& = {});
 	void stop() noexcept;
 	~agent();
 
