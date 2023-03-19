@@ -50,6 +50,10 @@ std::optional<config> get(char** argv)
 	{
 		ret.sip.pswd = std::move(password);
 	}
+	if (auto out_prx = cmdl({"-o", "prx"}).str(); not out_prx.empty())
+	{
+		ret.sip.outbound_prx = std::move(out_prx);
+	}
 
     return ret;
 }

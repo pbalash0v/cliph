@@ -120,10 +120,13 @@ struct user_data final
 {
 	OpusEncoder* opus_enc_ctx{};
 	OpusDecoder* opus_dec_ctx{};
+	//
 	cliph::rtp::stream rtp_stream;
+	//
 	std::unique_ptr<cliph::net::socket> sock_ptr;
 	asio::ip::udp::endpoint remote;
 	asio::ip::address local_media;
+	//
 	std::array<unsigned char, 4096> buff;
 	cliph::utils::thread_safe_array recv_buf;
 };
@@ -170,8 +173,9 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     }
 
     // try playout
+	auto decode_buf = std::array<opus_int16, 2048>{};
 	{
-    	auto lock = std::unique_lock{recv_buf.m_mtx};
+		auto lock = std::lock_guard{recv_buf};
 		if (recv_buf.m_is_empty)
 		{
 			std::cerr << "Audio buffer underrun" << '\n';
@@ -182,10 +186,10 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 		assert(rtp_pkt);
 		std::cerr << rtp_pkt << '\n';
 #endif
+		// we only offer OPUS and nothing else, so only expect OPUS payloads
+		// TODO: incoming pt check
 		const auto rtp_pkt = cliph::rtp::rtp{recv_buf.m_buffer.data(), recv_buf.m_size};
-		const auto* rtp_payload_ptr = static_cast<const unsigned char*>(rtp_pkt.data());
-		auto decode_buf = std::array<opus_int16, 2048>{};
-	   	if (auto frame_sz = ::opus_decode(opus_dec, rtp_payload_ptr, rtp_pkt.size(), decode_buf.data(), decode_buf.size(), /*decode_fec*/ 0); frame_sz < 0)
+		if (auto frame_sz = ::opus_decode(opus_dec, rtp_pkt, rtp_pkt.size(), decode_buf.data(), decode_buf.size(), /*decode_fec*/ 0); frame_sz < 0)
 	   	{
 	        std::cerr << get_opus_err_str(frame_sz) << '\n';
 	   	}
@@ -193,12 +197,9 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 	   	{
             MA_COPY_MEMORY(pOutput, decode_buf.data(), frame_sz * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
 	   	}
-		recv_buf.m_is_empty = true;
-		recv_buf.m_size = 0;
-		lock.unlock();
-
-		recv_buf.m_cond.notify_one();
-    }
+		recv_buf.mark_empty_locked();
+	}
+	recv_buf.m_cond.notify_one();
 }
 
 } //anon namespace
@@ -244,7 +245,7 @@ std::string engine::description() const
 
 engine::~engine()
 {
-	u_d.recv_buf.m_cond.notify_one();
+	u_d.sock_ptr->stop();
 	::opus_encoder_destroy(u_d.opus_enc_ctx);
 	::opus_decoder_destroy(u_d.opus_dec_ctx);
     ma_device_uninit(&m_device);

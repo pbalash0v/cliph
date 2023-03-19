@@ -184,7 +184,12 @@ void rtp::ssrc(std::uint32_t ssrc_val) noexcept
 	auto& val = *(reinterpret_cast<std::uint32_t*>(m_start) + 2u);
 	val = ::htonl(ssrc_val);
 }
+
 //
+rtp::operator const std::uint8_t*() const noexcept
+{
+	return static_cast<const std::uint8_t*>(data());
+}
 
 rtp::operator bool() const noexcept
 {

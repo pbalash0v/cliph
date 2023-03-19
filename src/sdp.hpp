@@ -26,13 +26,19 @@ inline resip::Data get(std::string ip_addr = k_ip_addr, std::uint16_t port = 9)
 	audio_section.name() = "audio";
 	audio_section.port() = port;
 	audio_section.protocol() = "RTP/AVP";
-	//
+      //
       audio_section.addFormat("96");
       audio_section.addAttribute("rtpmap", "96 OPUS/48000/2");
       //
-#if 0      
+#if 0
 	audio_section.addCodec(SdpContents::Session::Codec::getStaticCodecs().at(8));
 #endif
+      //
+#if 0
+      audio_section.addFormat("101");
+      audio_section.addAttribute("rtpmap", "101 telephone-event/8000");
+      audio_section.addAttribute("fmtp", "101 0-11");
+#endif      
       audio_section.addAttribute(SdpContents::Session::Direction::SENDRECV.name());
 	session.addMedium(audio_section);
 	//

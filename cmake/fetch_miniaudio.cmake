@@ -5,7 +5,7 @@ include(ExternalProject)
 
 ExternalProject_Add(miniaudio_
 	GIT_REPOSITORY https://github.com/mackron/miniaudio.git
-	GIT_TAG a0dc1037f99a643ff5fad7272cd3d6461f2d63fa #0.11.11
+	GIT_TAG 0a19c7441782fa6713b0f960458bfac59d14d876 #0.11.12
 	GIT_PROGRESS ON
 
 	BUILD_COMMAND ""

@@ -24,6 +24,7 @@ public:
 	[[nodiscard]] std::uint8_t csrc_count() const noexcept;
 	[[nodiscard]] const void* data() const noexcept;
 	[[nodiscard]] std::uint16_t size() const noexcept;
+	operator const std::uint8_t*() const noexcept;
 
 	// write rtp packet params to provided memory location
 	void ver(std::uint8_t = 2u) noexcept;

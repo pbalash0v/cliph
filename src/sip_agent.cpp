@@ -80,7 +80,7 @@ public:
 
 	void onFailure(resip::ClientInviteSessionHandle, const resip::SipMessage& msg) override
 	{
-		std::cout << "ClientInviteSession-onFailure - " << msg.brief() << std::endl;
+		std::cout << "/tClientInviteSession-onFailure - " << msg.brief() << std::endl;
 
 		const resip::StatusLine& sLine = msg.header(resip::h_StatusLine);
 		assert(sLine.responseCode() != 500);
@@ -114,7 +114,7 @@ public:
 
 	void onTerminated(resip::InviteSessionHandle, resip::InviteSessionHandler::TerminatedReason, const resip::SipMessage* msg) override
 	{
-		std::cout << "InviteSession-onTerminated - ";
+		std::cout << "/tInviteSession-onTerminated - ";
 		if (msg)
 		{
 			std::cout << msg->brief() << std::endl;
@@ -293,49 +293,41 @@ void agent::run(const call_config& c_cfg)
 
 	auto loop = [&]() mutable
 	{
-		resip::Log::initialize(resip::Log::Cout, resip::Log::Debug, resip::Data{"cliphone"});
-
-		auto doReg = false;
-		resip::Data uacPasswd;
-		resip::Data uasPasswd;
-		auto useOutbound = false;
-		resip::Uri outboundUri;
-
-		auto uacAor = resip::NameAddr{resip::Data{m_call_config.from.c_str()}};
-		auto uasAor = resip::NameAddr{resip::Data{m_call_config.to.c_str()}};
-
+		//
+		resip::Log::initialize(resip::Log::Cout, resip::Log::Debug, resip::Data{"cliph"});
+		//
+		auto myAor = resip::NameAddr{resip::Data{m_call_config.from.c_str()}};
+		auto calleeAor = resip::NameAddr{resip::Data{m_call_config.to.c_str()}};
+		//
 		//set up UAC
+		//
 		auto stackUac = resip::SipStack{};
 		stackUac.addTransport(m_config.transport, m_config.port);
-
+		// DUM
 		auto dum = std::make_unique<resip::DialogUsageManager>(stackUac);
+		// Profile
 		auto profile = std::make_shared<resip::MasterProfile>();
 		profile->setUserAgent("cliph");
+		profile->setDigestCredential(myAor.uri().host(), m_call_config.auth.c_str(), m_call_config.pswd.c_str());
+		if (m_call_config.outbound_prx)
+		{
+			profile->setOutboundProxy(resip::Uri{m_call_config.outbound_prx->c_str()});
+			profile->addSupportedOptionTag(resip::Token(resip::Symbols::Outbound));
+		}
+		profile->setDefaultFrom(myAor);
 		dum->setMasterProfile(std::move(profile));
+		//
 		dum->setClientAuthManager(std::make_unique<resip::ClientAuthManager>());
-
+		//
 		auto agent = sip_agent{};
 		dum->setInviteSessionHandler(&agent);
 		dum->addOutOfDialogHandler(resip::OPTIONS, &agent);
-
+		//
 		dum->setAppDialogSetFactory(std::make_unique<resip::AppDialogSetFactory>());//app_dialog_set_factory>());
-
-		if (doReg)
-		{
-			dum->getMasterProfile()->setDigestCredential(uacAor.uri().host(), uacAor.uri().user(), uacPasswd);
-		}
-
-		if (useOutbound)
-		{
-			dum->getMasterProfile()->setOutboundProxy(outboundUri);
-			dum->getMasterProfile()->addSupportedOptionTag(resip::Token(resip::Symbols::Outbound));
-		}
-
-		dum->getMasterProfile()->setDefaultFrom(uacAor);
-
+		//
 		auto uacShutdownHandler = DUMShutdownHandler{};
 
-		//
+		// Call loop
 		bool startedCallFlow = false;
 		bool startedShutdown = false;
 		auto inv = std::shared_ptr<resip::SipMessage>{};
@@ -351,7 +343,7 @@ void agent::run(const call_config& c_cfg)
 
 			if (not startedCallFlow)
 			{
-				inv = dum->makeInviteSession(uasAor, &agent.mSdp);
+				inv = dum->makeInviteSession(calleeAor, &agent.mSdp);
 				dum->send(inv);
 				startedCallFlow = true;
 			}

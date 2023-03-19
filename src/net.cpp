@@ -52,25 +52,26 @@ void socket::stop()
 	m_should_run = false;
 	m_socket.close();
 	m_io.stop();
+	m_buf.m_cond.notify_one();
 }
 
 void socket::read_loop()
 {
 	while (m_should_run)
 	{
+		// block waiting for consumer
 		auto u_lock = std::unique_lock{m_buf.m_mtx};
 		m_buf.m_cond.wait(u_lock, [&]()
 		{
 			return m_buf.m_is_empty;
 		});
 		u_lock.unlock();
-
+		// block waiting for socket data
 		auto recvd = m_socket.receive(asio::buffer(m_buf.m_buffer));
-
+		//
 		{
-			auto lock_g = std::lock_guard{m_buf.m_mtx};
-			m_buf.m_is_empty = false;
-			m_buf.m_size = recvd;
+			auto lock = std::lock_guard{m_buf};
+			m_buf.mark_filled_locked(recvd);
 		}
 	}
 }
