@@ -2,14 +2,20 @@
 #define audio_engine_hpp
 
 //
+#include "asio/ip/address.hpp"
 #include <string_view>
 #include <cstdint>
 //
 #include <miniaudio.h>
 //
 
-namespace cliph::audio
+namespace cliph
 {
+
+struct config
+{
+	asio::ip::address net_iface;
+};
 
 class engine final
 {
@@ -20,10 +26,10 @@ public:
 	~engine();
 
 public:
-	engine& init();
+	engine& init(const config&);
 	void start();
 	void stop();
-	void sink(std::string_view, std::uint16_t);
+	void set_net_sink(std::string_view, std::uint16_t);
 	std::string description() const;
 
 private:

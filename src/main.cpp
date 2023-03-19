@@ -1,3 +1,6 @@
+#include <cstdlib>
+#include <iterator>
+#include <random>
 #include <stdio.h>
 #include <stdlib.h>
 //
@@ -8,47 +11,115 @@
 #include "argh.h"
 //
 #include "audio_engine.hpp"
+#include "net.hpp"
 #include "sip_agent.hpp"
 #include "sdp.hpp"
 
 namespace
 {
-cliph::sip::call_config get(char** argv)
+
+struct config final
 {
-	auto ret = cliph::sip::call_config{};
+	cliph::sip::call_config sip;
+	cliph::config media;
+};
+
+std::optional<config> get(char** argv)
+{
+	auto ret = config{};
 
 	auto cmdl = argh::parser{argv};
+
+	if (cmdl[{"-h", "--help" }])
+	{
+		return std::nullopt;
+	}
 	if (auto caller_uri = cmdl({"-u", "uri"}).str(); not caller_uri.empty())
 	{
-		ret.from = std::move(caller_uri);
+		ret.sip.from = std::move(caller_uri);
 	}
 	if (auto callee_uri = cmdl({"-d", "dest"}).str(); not callee_uri.empty())
 	{
-		ret.to = std::move(callee_uri);
+		ret.sip.to = std::move(callee_uri);
 	}
-
 	if (auto auth_username = cmdl({"-a", "auth"}).str(); not auth_username.empty())
 	{
-		ret.auth = std::move(auth_username);
+		ret.sip.auth = std::move(auth_username);
 	}
 	if (auto password = cmdl({"-p", "pswd"}).str(); not password.empty())
 	{
-		ret.pswd = std::move(password);
+		ret.sip.pswd = std::move(password);
 	}
 
     return ret;
+}
+
+void print_usage()
+{
+	std::cout << "Usage: cliph [-hudap]" << '\n';
+};
+
+auto get_local_media_ip()
+{
+	if (auto local_ifaces = cliph::net::get_interfaces(); local_ifaces.size() == 1)
+	{
+		std::cerr << local_ifaces.front() << " is used for media stream" << '\n';
+		return local_ifaces.front();
+	}
+	else
+	{
+		auto iface_idx = 0u;
+		while (true)
+		{
+			std::cout << "Input local network interface for media stream: [0-" << local_ifaces.size() -1 << "]" << std::endl;
+			for (auto it = std::cbegin(local_ifaces), fin = std::cend(local_ifaces); it != fin; ++it)
+			{
+				std::cout << std::distance(std::cbegin(local_ifaces), it) << ": " << *it << std::endl;
+			}
+			//
+			std::cin >> iface_idx;
+		    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+			if (!std::cin.good())
+			{
+				std::cin.clear();
+				std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+				continue;
+			}
+
+			if (iface_idx < local_ifaces.size())
+			{
+				std::cerr << local_ifaces[iface_idx] << " selected" << '\n';
+				return local_ifaces[iface_idx];
+			}
+			else
+			{
+				std::cerr << "wrong selection" << '\n';
+			}
+		}
+	}
 }
 
 }// namespace
 
 int main(int /*argc*/, char** argv)
 {
-	cliph::audio::engine::get().init();
-	cliph::sip::agent::get().run(get(argv));
-	//
-	std::printf("Press Enter to stop...\n");
-	getchar();
-	std::printf("Terminating...\n");
-	//
-	cliph::sip::agent::get().stop();
+	if (auto cfg = get(argv))
+	{
+		cfg->media.net_iface = get_local_media_ip();
+
+		cliph::engine::get().init(cfg->media);
+		cliph::sip::agent::get().run(cfg->sip);
+		//
+		std::printf("Press Enter to stop...\n");
+		getchar();
+		std::printf("Terminating...\n");
+		//
+		cliph::sip::agent::get().stop();
+	}
+	else
+	{
+		print_usage();
+	}
+
+	return EXIT_SUCCESS;
 }

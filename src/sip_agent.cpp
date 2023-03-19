@@ -59,7 +59,7 @@ public:
 public:
 	sip_agent()
 	{
-		auto txt = cliph::audio::engine::get().description();
+		auto txt = cliph::engine::get().description();
 		auto hfv = resip::HeaderFieldValue{txt.data(), (unsigned int)txt.size()};
 		auto type = resip::Mime{"application", "sdp"};
 		mSdp = resip::SdpContents{hfv, type};
@@ -94,7 +94,7 @@ public:
 	void onConnected(resip::ClientInviteSessionHandle, const resip::SipMessage& msg) override
 	{
 		std::cout << "ClientInviteSession-onConnected - " << msg.brief() << std::endl;
-		cliph::audio::engine::get().start();
+		cliph::engine::get().start();
 	}
 
 	void onStaleCallTimeout(resip::ClientInviteSessionHandle) override
@@ -121,7 +121,7 @@ public:
 		}
 		std::cout << std::endl;
 		//
-		cliph::audio::engine::get().stop();
+		cliph::engine::get().stop();
 		done = true;
 	}
 
@@ -131,7 +131,7 @@ public:
 		//sdp->encode(std::cout);
 		if (auto list = sdp.session().media().front().getConnections(); not list.empty())
 		{
-			cliph::audio::engine::get().sink(list.front().getAddress().c_str(), sdp.session().media().front().port());
+			cliph::engine::get().set_net_sink(list.front().getAddress().c_str(), sdp.session().media().front().port());
 		}
 	}
 
@@ -231,7 +231,7 @@ public:
 	}
 }; //class sip_agent
 
-
+#if 0
 class app_dialog_set : public resip::AppDialogSet
 {
 public:
@@ -249,7 +249,7 @@ public:
 	resip::DialogUsageManager& mDum;
 }; // class app_dialog_set
 
-#if 0
+
 class app_dialog_set_factory : public resip::AppDialogSetFactory
 {
 public:

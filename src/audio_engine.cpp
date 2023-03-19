@@ -1,3 +1,4 @@
+#include "asio/ip/address.hpp"
 #include "asio/ip/address_v4.hpp"
 #include "asio/ip/udp.hpp"
 #include <cassert>
@@ -122,6 +123,7 @@ struct user_data final
 	cliph::rtp::stream rtp_stream;
 	std::unique_ptr<cliph::net::socket> sock_ptr;
 	asio::ip::udp::endpoint remote;
+	asio::ip::address local_media;
 	std::array<unsigned char, 4096> buff;
 	cliph::utils::thread_safe_array recv_buf;
 };
@@ -202,7 +204,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 } //anon namespace
 
 
-namespace cliph::audio
+namespace cliph
 {
 
 engine& engine::get() noexcept
@@ -211,18 +213,18 @@ engine& engine::get() noexcept
 	return instance;
 }
 
-engine& engine::init()
+engine& engine::init(const config& cfg)
 {
 	u_d.opus_enc_ctx = get_opus_enc();
 	u_d.opus_dec_ctx = get_opus_dec();
-
 	//
 	constexpr const auto k_opus_dyn_pt = 96u;
 	constexpr const auto k_opus_rtp_clock = 48000u;
 	u_d.rtp_stream = cliph::rtp::stream{};
 	u_d.rtp_stream.payloads().emplace(k_opus_dyn_pt, k_opus_rtp_clock);
 	//
-	u_d.sock_ptr = std::make_unique<cliph::net::socket>(u_d.recv_buf);
+	u_d.local_media = cfg.net_iface;
+	u_d.sock_ptr = std::make_unique<cliph::net::socket>(cfg.net_iface, u_d.recv_buf);
 	u_d.sock_ptr->run();
 	//
 	enumerate_and_select();
@@ -230,14 +232,14 @@ engine& engine::init()
 	return *this;
 }
 
-void engine::sink(std::string_view ip, std::uint16_t port)
+void engine::set_net_sink(std::string_view ip, std::uint16_t port)
 {
 	u_d.remote = asio::ip::udp::endpoint{asio::ip::make_address_v4(ip), port};
 }
 
 std::string engine::description() const
 {
-	return cliph::sdp::get("127.0.0.1", u_d.sock_ptr->port()).c_str();
+	return cliph::sdp::get(u_d.local_media.to_string(), u_d.sock_ptr->port()).c_str();
 }
 
 engine::~engine()
