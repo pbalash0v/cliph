@@ -34,13 +34,19 @@ std::optional<config> get(char** argv)
 	{
 		return std::nullopt;
 	}
-	if (auto caller_uri = cmdl({"-u", "uri"}).str(); not caller_uri.empty())
-	{
-		ret.sip.from = std::move(caller_uri);
-	}
+	//
 	if (auto callee_uri = cmdl({"-d", "dest"}).str(); not callee_uri.empty())
 	{
 		ret.sip.to = std::move(callee_uri);
+	}
+	else
+	{
+		return std::nullopt;
+	}
+	//
+	if (auto caller_uri = cmdl({"-u", "uri"}).str(); not caller_uri.empty())
+	{
+		ret.sip.from = std::move(caller_uri);
 	}
 	if (auto auth_username = cmdl({"-a", "auth"}).str(); not auth_username.empty())
 	{
@@ -58,9 +64,12 @@ std::optional<config> get(char** argv)
     return ret;
 }
 
-void print_usage()
+void print_usage(std::string_view binary)
 {
 	std::cout << "Usage: cliph [-hudap]" << '\n';
+	std::cout << "\tExample: " << binary
+		<< " -u=sip:caller@domain.com -d=sip:callee@domain.com -o=sip:proxy.domain.com -a=auth_user_name -p=auth_password"
+		<< std::endl;
 };
 
 auto get_local_media_ip()
@@ -122,7 +131,7 @@ int main(int /*argc*/, char** argv)
 	}
 	else
 	{
-		print_usage();
+		print_usage(argv[0]);
 	}
 
 	return EXIT_SUCCESS;
