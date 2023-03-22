@@ -27,8 +27,11 @@ public:
 
 public:
 	engine& init(const config&);
+	//
 	void start();
+	void pause();
 	void stop();
+	//
 	void set_net_sink(std::string_view, std::uint16_t);
 	std::string description() const;
 

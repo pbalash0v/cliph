@@ -41,40 +41,40 @@ void socket::write(const asio::ip::udp::endpoint& destination, const void* buf, 
 
 void socket::run()
 {
+	read_loop();
 	m_read_thread = std::thread{[&]()
 	{
-		read_loop();
+		m_io.run();
 	}};
 }
 
 void socket::stop()
 {
-	m_should_run = false;
+	m_buf.m_cond.notify_one();
 	m_socket.close();
 	m_io.stop();
-	m_buf.m_cond.notify_one();
 }
 
 void socket::read_loop()
 {
-	while (m_should_run)
+	m_socket.async_receive(asio::buffer(m_buf.m_buffer), [this](auto err, auto recvd)
 	{
-		// block waiting for consumer
-		auto u_lock = std::unique_lock{m_buf.m_mtx};
-		m_buf.m_cond.wait(u_lock, [&]()
-		{
-			return m_buf.m_is_empty;
-		});
-		u_lock.unlock();
-		// block waiting for socket data
-		auto recvd = m_socket.receive(asio::buffer(m_buf.m_buffer));
+		if (err) { return; }
 		//
 		{
-			auto lock = std::lock_guard{m_buf};
+			auto u_lock = std::unique_lock{m_buf.m_mtx};
 			m_buf.mark_filled_locked(recvd);
+			// block waiting for consumer
+			m_buf.m_cond.wait(u_lock, [&]()
+			{
+				return m_buf.m_is_empty;
+			});
 		}
-	}
+		//
+		read_loop();
+	});
 }
+
 } // namespace cliph::net
 
 

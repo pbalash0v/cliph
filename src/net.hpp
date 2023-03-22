@@ -35,7 +35,6 @@ private:
 	asio::ip::udp::socket m_socket;//{m_io};//, asio::ip::udp::endpoint {asio::ip::udp::v4(), 0u}};
 	//
 	std::thread m_read_thread;
-	std::atomic_bool m_should_run{true};
 
 private:
 	void read_loop();

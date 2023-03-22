@@ -83,38 +83,49 @@ std::string_view get_opus_err_str(opus_int32 err)
 namespace  
 {
 
-auto enumerate(ma_context& context)
+auto enumerate_pb(ma_context& context)
 {
-    if (ma_context_init(NULL, 0, NULL, &context) != MA_SUCCESS)
-    {
-        throw std::runtime_error{"Failed to initialize context"};
-    }
-
 	ma_device_info* pPlaybackDeviceInfos{};
 	ma_uint32 playbackDeviceCount{};
 	ma_uint32 captureDeviceCount{};
 	ma_device_info* pCaptureDeviceInfos{};
 	ma_uint32 iDevice{};
+
     if (auto result = ma_context_get_devices(&context, &pPlaybackDeviceInfos, &playbackDeviceCount, &pCaptureDeviceInfos, &captureDeviceCount); result != MA_SUCCESS)
 	{
 		throw std::runtime_error{"Failed to retrieve device information"};
 	}
 
-	std::printf("Playback Devices\n");
+	std::printf("\nPlayback Devices\n");
 	for (iDevice = 0; iDevice < playbackDeviceCount; ++iDevice)
 	{
 		std::printf("    %u: %s\n", iDevice, pPlaybackDeviceInfos[iDevice].name);
 	}
-	std::printf("\n");
-	std::printf("Capture Devices\n");
+
+    return std::tuple{playbackDeviceCount-1, pPlaybackDeviceInfos};
+}
+
+auto enumerate_cap(ma_context& context)
+{
+	ma_device_info* pPlaybackDeviceInfos{};
+	ma_uint32 playbackDeviceCount{};
+	ma_uint32 captureDeviceCount{};
+	ma_device_info* pCaptureDeviceInfos{};
+	ma_uint32 iDevice{};
+
+    if (auto result = ma_context_get_devices(&context, &pPlaybackDeviceInfos, &playbackDeviceCount, &pCaptureDeviceInfos, &captureDeviceCount); result != MA_SUCCESS)
+	{
+		throw std::runtime_error{"Failed to retrieve device information"};
+	}
+
+	std::printf("\nCapture Devices\n");
 	for (iDevice = 0; iDevice < captureDeviceCount; ++iDevice)
 	{
 		std::printf("    %u: %s\n", iDevice, pCaptureDeviceInfos[iDevice].name);
 	}
 
-    return std::tuple{playbackDeviceCount-1, pPlaybackDeviceInfos, captureDeviceCount-1, pCaptureDeviceInfos};
+    return std::tuple{captureDeviceCount-1, pCaptureDeviceInfos};
 }
-
 
 struct user_data final
 {
@@ -193,7 +204,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 	   	{
 	        std::cerr << get_opus_err_str(frame_sz) << '\n';
 	   	}
-	   	else
+		else
 	   	{
             MA_COPY_MEMORY(pOutput, decode_buf.data(), frame_sz * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
 	   	}
@@ -216,6 +227,11 @@ engine& engine::get() noexcept
 
 engine& engine::init(const config& cfg)
 {
+    if (ma_context_init(NULL, 0, NULL, &m_context) != MA_SUCCESS)
+    {
+        throw std::runtime_error{"Failed to initialize context"};
+    }
+
 	u_d.opus_enc_ctx = get_opus_enc();
 	u_d.opus_dec_ctx = get_opus_dec();
 	//
@@ -274,10 +290,11 @@ void engine::enumerate_and_select()
             }
         }
     };
-	auto [max_pb_dev_id, pPlaybackDeviceInfos, max_cap_dev_id, pCaptureDeviceInfos] = enumerate(m_context);
+	auto [max_pb_dev_id, pPlaybackDeviceInfos] = enumerate_pb(m_context);
 	//
     std::printf("Select playback device:\n");
     const auto pb_dev_id = dev_id_get(max_pb_dev_id, pPlaybackDeviceInfos);
+    auto [max_cap_dev_id, pCaptureDeviceInfos] = enumerate_cap(m_context);
     std::printf("Select capture device:\n");
     const auto cap_dev_id = dev_id_get(max_cap_dev_id, pCaptureDeviceInfos);
 
@@ -319,13 +336,21 @@ void engine::start()
     }
 }
 
-void engine::stop()
+void engine::pause()
 {
     if (auto result = ma_device_stop(&m_device); result != MA_SUCCESS)
     {
-        throw std::runtime_error{"Failed to start device"};
+        throw std::runtime_error{"Failed to stop device"};
     }
+}
 
+void engine::stop()
+{
+	pause();
+	{
+		auto lock = std::lock_guard{u_d.recv_buf};
+		u_d.recv_buf.mark_empty_locked();
+	}
     u_d.sock_ptr->stop();
 }
 

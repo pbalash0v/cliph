@@ -131,6 +131,7 @@ int main(int /*argc*/, char** argv)
 		std::printf("Terminating...\n");
 		//
 		cliph::sip::agent::get().stop();
+		cliph::engine::get().stop();
 	}
 	else
 	{

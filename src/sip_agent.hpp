@@ -24,8 +24,8 @@ struct call_config
 	std::string from{"sip:caller@localhost"};
 	std::string to{"sip:callee@localhost"};
 	std::optional<std::string> outbound_prx;
-	std::string auth; //TODO
-	std::string pswd; //TODO
+	std::string auth;
+	std::string pswd;
 };
 
 class agent final
