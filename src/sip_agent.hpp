@@ -4,6 +4,7 @@
 #include <functional>
 #include <thread>
 #include <atomic>
+#include <optional>
 //
 #include "audio_engine.hpp"
 #include "resip/stack/SipStack.hxx"
