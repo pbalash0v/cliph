@@ -13,26 +13,28 @@
 namespace cliph::sip
 {
 
-struct config
+struct transport_config
 {
 	resip::TransportType transport{resip::TransportType::UDP};
 	std::uint16_t port = 0;
 };
 
-struct call_config
+struct config
 {
 	std::string from{"sip:caller@localhost"};
 	std::string to{"sip:callee@localhost"};
 	std::optional<std::string> outbound_prx;
 	std::string auth;
 	std::string pswd;
+	bool verbose{false};
+	transport_config tp_cfg;
 };
 
 class agent final
 {
 public:
 	static agent& get() noexcept;
-	void run(const call_config& = {});
+	void run(const config& = {});
 	void stop() noexcept;
 	~agent();
 
@@ -41,7 +43,6 @@ private:
 
 private:
 	config m_config{};
-	call_config m_call_config{};
 	std::thread m_agent_thread;
 	std::atomic_bool m_should_stop{false};
 

@@ -287,31 +287,31 @@ agent::~agent()
     }
 }
 
-void agent::run(const call_config& c_cfg)
+void agent::run(const config& c_cfg)
 {
-	m_call_config = c_cfg;
+	m_config = c_cfg;
 
 	auto loop = [&]() mutable
 	{
 		//
-		resip::Log::initialize(resip::Log::Cout, resip::Log::Debug, resip::Data{"cliph"});
+		resip::Log::initialize(resip::Log::Cout, (m_config.verbose ? resip::Log::Debug : resip::Log::Info), resip::Data{"cliph"});
 		//
-		auto myAor = resip::NameAddr{resip::Data{m_call_config.from.c_str()}};
-		auto calleeAor = resip::NameAddr{resip::Data{m_call_config.to.c_str()}};
+		auto myAor = resip::NameAddr{resip::Data{m_config.from.c_str()}};
+		auto calleeAor = resip::NameAddr{resip::Data{m_config.to.c_str()}};
 		//
 		//set up UAC
 		//
 		auto stackUac = resip::SipStack{};
-		stackUac.addTransport(m_config.transport, m_config.port);
+		stackUac.addTransport(m_config.tp_cfg.transport, m_config.tp_cfg.port);
 		// DUM
 		auto dum = std::make_unique<resip::DialogUsageManager>(stackUac);
 		// Profile
 		auto profile = std::make_shared<resip::MasterProfile>();
 		profile->setUserAgent("cliph");
-		profile->setDigestCredential(myAor.uri().host(), m_call_config.auth.c_str(), m_call_config.pswd.c_str());
-		if (m_call_config.outbound_prx)
+		profile->setDigestCredential(myAor.uri().host(), m_config.auth.c_str(), m_config.pswd.c_str());
+		if (m_config.outbound_prx)
 		{
-			profile->setOutboundProxy(resip::Uri{m_call_config.outbound_prx->c_str()});
+			profile->setOutboundProxy(resip::Uri{m_config.outbound_prx->c_str()});
 			profile->addSupportedOptionTag(resip::Token(resip::Symbols::Outbound));
 		}
 		profile->setDefaultFrom(myAor);

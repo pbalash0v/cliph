@@ -20,7 +20,7 @@ namespace
 
 struct config final
 {
-	cliph::sip::call_config sip;
+	cliph::sip::config sip;
 	cliph::config media;
 };
 
@@ -60,13 +60,17 @@ std::optional<config> get(char** argv)
 	{
 		ret.sip.outbound_prx = std::move(out_prx);
 	}
+	if (cmdl[{"-v", "--verbose" }])
+	{
+		ret.sip.verbose = true;
+	}
 
     return ret;
 }
 
 void print_usage(std::string_view binary)
 {
-	std::cout << "Usage: cliph [-hudap]" << '\n';
+	std::cout << "Usage: cliph [-hvudap]" << '\n';
 	std::cout << "\tExample: " << binary
 		<< " -u=sip:caller@domain.com -d=sip:callee@domain.com -o=sip:proxy.domain.com -a=auth_user_name -p=auth_password"
 		<< std::endl;
