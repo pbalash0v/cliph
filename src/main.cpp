@@ -70,21 +70,22 @@ void print_usage(std::string_view binary)
 	std::cout << "\tExample: " << binary
 		<< " -u=sip:caller@domain.com -d=sip:callee@domain.com -o=sip:proxy.domain.com -a=auth_user_name -p=auth_password"
 		<< std::endl;
-};
+}
 
-auto get_local_media_ip()
+void fill_local_media_ip(config& cfg)
 {
 	if (auto local_ifaces = cliph::net::get_interfaces(); local_ifaces.size() == 1)
 	{
 		std::cerr << local_ifaces.front() << " is used for media stream" << '\n';
-		return local_ifaces.front();
+		cfg.media.net_iface = local_ifaces.front();
+		return;
 	}
 	else
 	{
 		auto iface_idx = 0u;
 		while (true)
 		{
-			std::cout << "Input local network interface for media stream: [0-" << local_ifaces.size() -1 << "]" << std::endl;
+			std::cout << "Select local network interface for media stream: [0-" << local_ifaces.size() -1 << "]" << std::endl;
 			for (auto it = std::cbegin(local_ifaces), fin = std::cend(local_ifaces); it != fin; ++it)
 			{
 				std::cout << std::distance(std::cbegin(local_ifaces), it) << ": " << *it << std::endl;
@@ -102,7 +103,8 @@ auto get_local_media_ip()
 			if (iface_idx < local_ifaces.size())
 			{
 				std::cerr << local_ifaces[iface_idx] << " selected" << '\n';
-				return local_ifaces[iface_idx];
+				cfg.media.net_iface = local_ifaces[iface_idx];
+				return;
 			}
 			else
 			{
@@ -114,11 +116,12 @@ auto get_local_media_ip()
 
 }// namespace
 
+
 int main(int /*argc*/, char** argv)
 {
 	if (auto cfg = get(argv))
 	{
-		cfg->media.net_iface = get_local_media_ip();
+		fill_local_media_ip(*cfg);
 
 		cliph::engine::get().init(cfg->media);
 		cliph::sip::agent::get().run(cfg->sip);
