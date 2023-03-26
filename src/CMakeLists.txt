@@ -6,6 +6,7 @@ cmake_minimum_required(VERSION 3.18)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
+add_subdirectory(rtpp)
 #################################
 # Define targets
 #################################
@@ -17,7 +18,7 @@ target_sources(${TARGET_NAME} PRIVATE
 	sip_agent.cpp
 	net.cpp
 )
-add_subdirectory(rtp)
+
 #
 target_link_libraries(${TARGET_NAME} PRIVATE
 	asio::asio
@@ -28,6 +29,7 @@ target_link_libraries(${TARGET_NAME} PRIVATE
 	resip
 	dum
 	argh
+	rtpp
 )
 set_target_properties(${TARGET_NAME} PROPERTIES
 	CXX_STANDARD 17

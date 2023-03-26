@@ -1,11 +1,11 @@
-#ifndef rtcp_hpp
-#define rtcp_hpp
+#ifndef rtpp_rtcp_hpp
+#define rtpp_rtcp_hpp
 
 #include <iostream>
 #include <cstdint>
 
 
-namespace mspg
+namespace rtpp
 {
 class rtcp final
 {
@@ -21,7 +21,7 @@ public:
 
 private:
 	void* m_start{};
-	std::size_t m_len{};
+	[[maybe_unused]] std::size_t m_len{};
 
 private:
 	friend std::ostream& operator<<(std::ostream& ostr, const rtcp& rtcp)
@@ -48,6 +48,6 @@ private:
 	}
 
 };
-} //namespace mspg
+} //namespace rtpp
 
-#endif //rtcp_hpp
+#endif //rtpp_rtcp_hpp

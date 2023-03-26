@@ -48,14 +48,12 @@ struct DUMShutdownHandler : public resip::DumShutdownHandler
 }; //struct DUMShutdownHandler
 
 
-#define RESIPROCATE_SUBSYSTEM Subsystem::TEST
-
 class sip_agent : public resip::InviteSessionHandler, public resip::OutOfDialogHandler
 {
 public:	
 	bool done {false};
-
 	resip::SdpContents mSdp;
+
 public:
 	sip_agent()
 	{
@@ -68,7 +66,7 @@ public:
 public:
 	void onNewSession(resip::ClientInviteSessionHandle, resip::InviteSession::OfferAnswerType, const resip::SipMessage& msg) override
 	{
-		std::cout << "\n\n\n\nClientInviteSession-onNewSession - " << msg.brief() << std::endl;
+		std::cout << "ClientInviteSession-onNewSession - " << msg.brief() << std::endl;
 	}
 
 	// handle incoming INVITE
@@ -80,7 +78,7 @@ public:
 
 	void onFailure(resip::ClientInviteSessionHandle, const resip::SipMessage& msg) override
 	{
-		std::cout << "/tClientInviteSession-onFailure - " << msg.brief() << std::endl;
+		std::cout << "ClientInviteSession-onFailure - " << msg.brief() << std::endl;
 
 		const resip::StatusLine& sLine = msg.header(resip::h_StatusLine);
 		assert(sLine.responseCode() != 500);
@@ -114,7 +112,7 @@ public:
 
 	void onTerminated(resip::InviteSessionHandle, resip::InviteSessionHandler::TerminatedReason, const resip::SipMessage* msg) override
 	{
-		std::cout << "/tInviteSession-onTerminated - ";
+		std::cout << "InviteSession-onTerminated - ";
 		if (msg)
 		{
 			std::cout << msg->brief() << std::endl;

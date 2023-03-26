@@ -1,12 +1,11 @@
-#ifndef rtp_hpp
-#define rtp_hpp
+#ifndef rtpp_rtp_hpp
+#define rtpp_rtp_hpp
 
 #include <iosfwd>
 #include <cstdint>
 
-namespace cliph::rtp
+namespace rtpp
 {
-
 class rtp final
 {
 public:
@@ -53,6 +52,6 @@ inline std::ostream& operator<<(std::ostream& ostr, const rtp& rtp)
 	return rtp.dump(ostr);
 }
 
-} //namespace mspg
+} //namespace rtpp
 
-#endif //rtp_hpp
+#endif //rtpp_rtp_hpp

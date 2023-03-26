@@ -8,7 +8,7 @@ extern "C"
 
 using octet_type = std::uint8_t;
 
-namespace mspg
+namespace rtpp
 {
 
 rtcp::rtcp(void* start, std::size_t len)

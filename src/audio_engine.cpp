@@ -132,7 +132,7 @@ struct user_data final
 	OpusEncoder* opus_enc_ctx{};
 	OpusDecoder* opus_dec_ctx{};
 	//
-	cliph::rtp::stream rtp_stream;
+	rtpp::stream rtp_stream;
 	//
 	std::unique_ptr<cliph::net::socket> sock_ptr;
 	asio::ip::udp::endpoint remote;
@@ -156,7 +156,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 	const auto& remote = u_d->remote;
 	auto& recv_buf = u_d->recv_buf;
 
-	rtp_stream.advance_ts(96, cliph::rtp::stream::duration_type{kPeriodSizeInMilliseconds});
+	rtp_stream.advance_ts(96, rtpp::stream::duration_type{kPeriodSizeInMilliseconds});
 	auto* pkt_data_start = static_cast<unsigned char*>(rtp_stream.fill(pkt_buff.data(), pkt_buff.size()));
 
 	const auto buf_len_remains = pkt_buff.size() - (pkt_data_start - pkt_buff.data());
@@ -199,7 +199,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 #endif
 		// we only offer OPUS and nothing else, so only expect OPUS payloads
 		// TODO: incoming pt check
-		const auto rtp_pkt = cliph::rtp::rtp{recv_buf.m_buffer.data(), recv_buf.m_size};
+		const auto rtp_pkt = rtpp::rtp{recv_buf.m_buffer.data(), recv_buf.m_size};
 		if (auto frame_sz = ::opus_decode(opus_dec, rtp_pkt, rtp_pkt.size(), decode_buf.data(), decode_buf.size(), /*decode_fec*/ 0); frame_sz < 0)
 	   	{
 	        std::cerr << get_opus_err_str(frame_sz) << '\n';
@@ -237,7 +237,7 @@ engine& engine::init(const config& cfg)
 	//
 	constexpr const auto k_opus_dyn_pt = 96u;
 	constexpr const auto k_opus_rtp_clock = 48000u;
-	u_d.rtp_stream = cliph::rtp::stream{};
+	u_d.rtp_stream = rtpp::stream{};
 	u_d.rtp_stream.payloads().emplace(k_opus_dyn_pt, k_opus_rtp_clock);
 	//
 	u_d.local_media = cfg.net_iface;
@@ -297,24 +297,27 @@ void engine::enumerate_and_select()
     auto [max_cap_dev_id, pCaptureDeviceInfos] = enumerate_cap(m_context);
     std::printf("Select capture device:\n");
     const auto cap_dev_id = dev_id_get(max_cap_dev_id, pCaptureDeviceInfos);
-
+    //
     auto deviceConfig = ma_device_config_init(ma_device_type_duplex);
+    // pback props
     deviceConfig.playback.pDeviceID = &pPlaybackDeviceInfos[pb_dev_id].id;
     deviceConfig.playback.format   = ma_format_s16;
     deviceConfig.playback.channels = k_audio_device_channel_count;
+	// cap props
     deviceConfig.capture.pDeviceID = &pCaptureDeviceInfos[cap_dev_id].id;
     deviceConfig.capture.format   = ma_format_s16;
     deviceConfig.capture.channels = k_audio_device_channel_count;
-
+    // common
     deviceConfig.sampleRate       = k_audio_device_sample_rate;
     deviceConfig.periodSizeInFrames = kPeriodSizeInFrames;
     deviceConfig.periodSizeInMilliseconds = kPeriodSizeInMilliseconds;
     deviceConfig.dataCallback     = data_callback;
     deviceConfig.pUserData        = &u_d;
 
-    if (auto result = ma_device_init(NULL, &deviceConfig, &m_device); result != MA_SUCCESS) {
-        throw std::runtime_error{"Failed to initialize capture device"};
-    }
+	if (auto result = ma_device_init(NULL, &deviceConfig, &m_device); result != MA_SUCCESS)
+	{
+		throw std::runtime_error{"Failed to initialize capture device"};
+	}
 
 #if 0
     auto encoderConfig = ma_encoder_config_init(ma_encoding_format_wav, ma_format_s16, k_channel_count, k_sample_rate);
@@ -330,18 +333,18 @@ void engine::enumerate_and_select()
 
 void engine::start()
 {
-    if (auto result = ma_device_start(&m_device); result != MA_SUCCESS)
-    {
-        throw std::runtime_error{"Failed to start device"};
-    }
+	if (auto result = ma_device_start(&m_device); result != MA_SUCCESS)
+	{
+		throw std::runtime_error{"Failed to start device"};
+	}
 }
 
 void engine::pause()
 {
-    if (auto result = ma_device_stop(&m_device); result != MA_SUCCESS)
-    {
-        throw std::runtime_error{"Failed to stop device"};
-    }
+	if (auto result = ma_device_stop(&m_device); result != MA_SUCCESS)
+	{
+		throw std::runtime_error{"Failed to stop device"};
+	}
 }
 
 void engine::stop()

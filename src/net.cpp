@@ -62,6 +62,8 @@ void socket::read_loop()
 		if (err) { return; }
 		//
 		{
+			// blocking in async callback is not a good idea
+			// but good for now until some kind of playout buffer gets implemented
 			auto u_lock = std::unique_lock{m_buf.m_mtx};
 			m_buf.mark_filled_locked(recvd);
 			// block waiting for consumer

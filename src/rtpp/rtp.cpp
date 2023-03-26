@@ -13,7 +13,7 @@ extern "C"
 using octet_type = std::uint8_t;
 
 
-namespace cliph::rtp
+namespace rtpp
 {
 rtp::rtp(void* start, std::size_t len)
 	: m_start{start}
@@ -73,7 +73,7 @@ void rtp::csrc_count(std::uint8_t count)
 	val |= count;
 }
 //
-void rtp::ver(std::uint8_t v) noexcept
+void rtp::ver(std::uint8_t) noexcept
 {
 	constexpr const auto k_version_2_set = 0b1000'0000u;
 	constexpr const auto k_version_2_clear = 0b1011'1111u;
@@ -218,4 +218,4 @@ std::ostream& rtp::dump(std::ostream& ostr) const
 
 
 
-} //namespace mspg
+} //namespace rtpp

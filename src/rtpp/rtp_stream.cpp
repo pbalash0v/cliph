@@ -14,7 +14,7 @@ constexpr const auto k_pcmu_clock = 8000u;
 constexpr const auto k_pcma_pt = 0u;
 constexpr const auto k_pcma_clock = 8000u;
 
-const auto k_default_profiles = cliph::rtp::stream::payload_map_type{
+const auto k_default_profiles = rtpp::stream::payload_map_type{
 	{k_pcmu_pt, {k_pcmu_clock}},
 	{k_pcma_pt, {k_pcma_clock}},
 };
@@ -29,7 +29,7 @@ std::uniform_int_distribution distrib_uint16{std::numeric_limits<std::uint16_t>:
 } // namespace
 
 
-namespace cliph::rtp
+namespace rtpp
 {
 stream::stream()
 	: m_seq_num{distrib_uint16(mt)}
@@ -55,7 +55,7 @@ void stream::advance_seq_num() noexcept
 
 void* stream::fill(void* start, std::size_t len, bool mark)
 {
-	auto rtp_pkt = cliph::rtp::rtp{start, len};
+	auto rtp_pkt = rtpp::rtp{start, len};
 	rtp_pkt.ver();
 	rtp_pkt.mark(mark);
 	rtp_pkt.csrc_count(m_csrc_count);
@@ -78,4 +78,4 @@ std::ostream& stream::dump(std::ostream& ostr) const
 	
 	return ostr;	
 }
-} //namespace cliph::rtp
+} //namespace rtpp

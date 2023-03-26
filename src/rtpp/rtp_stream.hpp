@@ -1,5 +1,5 @@
-#ifndef rtp_stream_hpp
-#define rtp_stream_hpp
+#ifndef rtpp_rtp_stream_hpp
+#define rtpp_rtp_stream_hpp
 
 #include <chrono>
 #include <cstdint>
@@ -7,7 +7,7 @@
 #include <iosfwd>
 
 
-namespace cliph::rtp
+namespace rtpp
 {
 struct payload_type final
 {
@@ -52,6 +52,6 @@ inline std::ostream& operator<<(std::ostream& ostr, const stream& s)
 {
 	return s.dump(ostr);
 }
-} //namespace cliph::rtp
+} //namespace rtpp
 
-#endif
+#endif //rtpp_rtp_stream_hpp
