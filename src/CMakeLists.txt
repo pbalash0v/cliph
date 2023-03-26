@@ -35,12 +35,18 @@ set_target_properties(${TARGET_NAME} PROPERTIES
 	CXX_STANDARD 17
 	CXX_STANDARD_REQUIRED ON
 	CXX_EXTENSIONS OFF
-#	INTERPROCEDURAL_OPTIMIZATION ON	
+#	$<$<CONFIG:Release>:INTERPROCEDURAL_OPTIMIZATION ON>
 )
 target_compile_options(${TARGET_NAME} PRIVATE
 	$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall> #-Wextra -pedantic># -Werror>
 )
+
+set(is_gnu "$<CXX_COMPILER_ID:GNU>")
+set(is_clang "$<CXX_COMPILER_ID:Clang>")
+set(meet_requirements "$<OR:${is_gnu},${is_clang}>")
 target_link_options(${TARGET_NAME} PRIVATE
-#	$<BUILD_INTERFACE:$<$<CXX_COMPILER_ID:Clang>:-stdlib=libc++>>
+#	$<$<CXX_COMPILER_ID:Clang>:-stdlib=libc++>
+#	$<$<CXX_COMPILER_ID:GNU>:-static-libgcc -static-libstdc++>
+	$<${meet_requirements}:-static-libgcc -static-libstdc++>
 )
 
