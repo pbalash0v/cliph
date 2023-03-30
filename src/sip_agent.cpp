@@ -1,4 +1,5 @@
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <sstream>
 #include <iostream>
@@ -63,6 +64,13 @@ public:
 		mSdp = resip::SdpContents{hfv, type};
 	}
 
+	void shutdown()
+	{
+		//
+		cliph::engine::get().stop();
+		done = true;
+	}
+
 public:
 	void onNewSession(resip::ClientInviteSessionHandle, resip::InviteSession::OfferAnswerType, const resip::SipMessage& msg) override
 	{
@@ -118,31 +126,53 @@ public:
 			std::cout << msg->brief() << std::endl;
 		}
 		std::cout << std::endl;
-		//
-		cliph::engine::get().stop();
-		done = true;
+		shutdown();
 	}
 
-	void onAnswer(resip::InviteSessionHandle, const resip::SipMessage&, const resip::SdpContents& sdp) override
+	void onAnswer(resip::InviteSessionHandle is, const resip::SipMessage&, const resip::SdpContents& sdp) override
 	{
 		std::cout << "InviteSession-onAnswer(SDP)" << std::endl;
-		//sdp->encode(std::cout);
+		sdp.encode(std::cout);
+
 		if (auto list = sdp.session().media().front().getConnections(); not list.empty())
 		{
-			cliph::engine::get().set_net_sink(list.front().getAddress().c_str(), sdp.session().media().front().port());
+			if (sdp.session().media().front().name() != "audio")
+			{
+				std::cout << "First media section is not audio" << std::endl;
+				is->end();
+				return;
+			}
+
+			for (const auto& codec : sdp.session().media().front().codecs())
+			{
+				if (codec.getName().prefix("OPUS") or (codec.getName().prefix("opus")))
+				{
+					cliph::engine::get().set_net_sink(list.front().getAddress().c_str(), sdp.session().media().front().port());
+					cliph::engine::get().set_remote_opus_params(static_cast<uint8_t>(codec.payloadType()));
+					return;
+				}
+			}
+			std::cout << "No OPUS codec in answer SDP" << std::endl;
 		}
+
+		is->end();
 	}
 
 	void onOffer(resip::InviteSessionHandle is, const resip::SipMessage&, const resip::SdpContents& sdp) override
 	{
 		std::cout << "InviteSession-onOffer(SDP)" << std::endl;
+		is->reject(488u);
 		//sdp->encode(std::cout);
-		//is->provideAnswer(sdp);
 	}
 
-	void onEarlyMedia(resip::ClientInviteSessionHandle, const resip::SipMessage&, const resip::SdpContents&) override
+	void onEarlyMedia(resip::ClientInviteSessionHandle, const resip::SipMessage&, const resip::SdpContents& sdp) override
 	{
 		std::cout << "InviteSession-onEarlyMedia(SDP)" << std::endl;
+
+		if (auto list = sdp.session().media().front().getConnections(); not list.empty())
+		{
+			cliph::engine::get().set_net_sink(list.front().getAddress().c_str(), sdp.session().media().front().port());
+		}
 		//sdp->encode(std::cout);
 	}
 

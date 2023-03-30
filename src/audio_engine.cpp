@@ -127,19 +127,60 @@ auto enumerate_cap(ma_context& context)
     return std::tuple{captureDeviceCount-1, pCaptureDeviceInfos};
 }
 
-struct user_data final
+class user_data final
 {
+public:
+	inline static constexpr const auto k_opus_dyn_pt = 96u;
+	inline static constexpr const auto k_opus_rtp_clock = 48000u;
+public:
 	OpusEncoder* opus_enc_ctx{};
 	OpusDecoder* opus_dec_ctx{};
 	//
 	rtpp::stream rtp_stream;
 	//
 	std::unique_ptr<cliph::net::socket> sock_ptr;
-	asio::ip::udp::endpoint remote;
+	//
 	asio::ip::address local_media;
+	//
+	std::atomic<std::uint8_t> m_rmt_opus_pt{};
 	//
 	std::array<unsigned char, 4096> buff;
 	cliph::utils::thread_safe_array recv_buf;
+
+
+	auto remote()
+	{
+		auto lock_version = std::uint64_t{};
+
+		while (true)
+		{
+			while (true)
+			{
+				lock_version = m_rmt_seq_lock_version.load();
+				if ((lock_version & 1) != 0) continue; //write in progress
+				break;
+			}
+
+			auto res = m_remote;
+			if (m_rmt_seq_lock_version == lock_version)
+			{
+				return res;
+			}
+		}
+	}
+
+	auto remote(asio::ip::udp::endpoint rmt)
+	{
+		m_rmt_seq_lock_version += 1;
+		m_remote = std::move(rmt);
+		m_rmt_seq_lock_version += 1;
+	}
+
+private:
+	//
+	asio::ip::udp::endpoint m_remote;
+
+	std::atomic<std::uint64_t> m_rmt_seq_lock_version{};
 };
 auto u_d = user_data{};
 constexpr const auto kPeriodSizeInFrames = 0u;
@@ -147,16 +188,15 @@ constexpr const auto kPeriodSizeInMilliseconds = 20u;
 //
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-	user_data* u_d = (user_data*)pDevice->pUserData;
-	auto* opus_enc = u_d->opus_enc_ctx;
-	auto* opus_dec = u_d->opus_dec_ctx;
-	auto& pkt_buff = u_d->buff;
-	auto& rtp_stream = u_d->rtp_stream;
-	auto& sock = *(u_d->sock_ptr);
-	const auto& remote = u_d->remote;
-	auto& recv_buf = u_d->recv_buf;
+	user_data& u_d = *static_cast<user_data*>(pDevice->pUserData);
+	auto* opus_enc = u_d.opus_enc_ctx;
+	auto* opus_dec = u_d.opus_dec_ctx;
+	auto& pkt_buff = u_d.buff;
+	auto& rtp_stream = u_d.rtp_stream;
+	auto& sock = *(u_d.sock_ptr);
+	auto& recv_buf = u_d.recv_buf;
 
-	rtp_stream.advance_ts(96, rtpp::stream::duration_type{kPeriodSizeInMilliseconds});
+	rtp_stream.advance_ts(user_data::k_opus_dyn_pt, rtpp::stream::duration_type{kPeriodSizeInMilliseconds});
 	auto* pkt_data_start = static_cast<unsigned char*>(rtp_stream.fill(pkt_buff.data(), pkt_buff.size()));
 
 	const auto buf_len_remains = pkt_buff.size() - (pkt_data_start - pkt_buff.data());
@@ -179,7 +219,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 	    	assert(rtp_pkt);
 	    	std::cerr << rtp_pkt << '\n';
 #endif
-	    	sock.write(remote, pkt_buff.data(), total_pkt_len);
+			sock.write(u_d.remote(), pkt_buff.data(), total_pkt_len);
 	    }
     }
 
@@ -200,6 +240,11 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 		// we only offer OPUS and nothing else, so only expect OPUS payloads
 		// TODO: incoming pt check
 		const auto rtp_pkt = rtpp::rtp{recv_buf.m_buffer.data(), recv_buf.m_size};
+		if (rtp_pkt.pt() != u_d.m_rmt_opus_pt)
+		{
+			std::cerr << "Got unexpected pt: " <<  rtp_pkt.pt() << '\n';
+			return;
+		}
 		if (auto frame_sz = ::opus_decode(opus_dec, rtp_pkt, rtp_pkt.size(), decode_buf.data(), decode_buf.size(), /*decode_fec*/ 0); frame_sz < 0)
 	   	{
 	        std::cerr << get_opus_err_str(frame_sz) << '\n';
@@ -235,10 +280,9 @@ engine& engine::init(const config& cfg)
 	u_d.opus_enc_ctx = get_opus_enc();
 	u_d.opus_dec_ctx = get_opus_dec();
 	//
-	constexpr const auto k_opus_dyn_pt = 96u;
-	constexpr const auto k_opus_rtp_clock = 48000u;
+
 	u_d.rtp_stream = rtpp::stream{};
-	u_d.rtp_stream.payloads().emplace(k_opus_dyn_pt, k_opus_rtp_clock);
+	u_d.rtp_stream.payloads().emplace(user_data::k_opus_dyn_pt, user_data::k_opus_rtp_clock);
 	//
 	u_d.local_media = cfg.net_iface;
 	u_d.sock_ptr = std::make_unique<cliph::net::socket>(cfg.net_iface, u_d.recv_buf);
@@ -251,12 +295,18 @@ engine& engine::init(const config& cfg)
 
 void engine::set_net_sink(std::string_view ip, std::uint16_t port)
 {
-	u_d.remote = asio::ip::udp::endpoint{asio::ip::make_address_v4(ip), port};
+	u_d.remote(asio::ip::udp::endpoint{asio::ip::make_address_v4(ip), port});
 }
+
+void engine::set_remote_opus_params(std::uint8_t pt)
+{
+	u_d.m_rmt_opus_pt = pt;
+}
+
 
 std::string engine::description() const
 {
-	return cliph::sdp::get(u_d.local_media.to_string(), u_d.sock_ptr->port()).c_str();
+	return cliph::sdp::get_local(u_d.local_media.to_string(), u_d.sock_ptr->port()).c_str();
 }
 
 engine::~engine()

@@ -33,6 +33,8 @@ public:
 	void stop();
 	//
 	void set_net_sink(std::string_view, std::uint16_t);
+	void set_remote_opus_params(std::uint8_t);
+	//
 	std::string description() const;
 
 private:
