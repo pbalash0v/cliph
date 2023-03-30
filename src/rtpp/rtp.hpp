@@ -29,7 +29,7 @@ public:
 	void ver(std::uint8_t = 2u) noexcept;
 	void pad(bool) noexcept;
 	void extensions(bool) noexcept;
-	void mark(bool) noexcept;
+	void mark(bool = true) noexcept;
 	void pt(std::uint8_t);
 	void seq_num(std::uint16_t) noexcept;
 	void ts(std::uint32_t) noexcept;

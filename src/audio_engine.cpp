@@ -130,6 +130,8 @@ auto enumerate_cap(ma_context& context)
 class user_data final
 {
 public:
+	inline static constexpr const auto kPeriodSizeInMilliseconds = 20u;
+	inline static constexpr const auto k_rtp_advance_interval= rtpp::stream::duration_type{kPeriodSizeInMilliseconds};
 	inline static constexpr const auto k_opus_dyn_pt = 96u;
 	inline static constexpr const auto k_opus_rtp_clock = 48000u;
 public:
@@ -146,7 +148,6 @@ public:
 	//
 	std::array<unsigned char, 4096> buff;
 	cliph::utils::thread_safe_array recv_buf;
-
 
 	auto remote()
 	{
@@ -183,8 +184,7 @@ private:
 	std::atomic<std::uint64_t> m_rmt_seq_lock_version{};
 };
 auto u_d = user_data{};
-constexpr const auto kPeriodSizeInFrames = 0u;
-constexpr const auto kPeriodSizeInMilliseconds = 20u;
+
 //
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
@@ -195,31 +195,34 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 	auto& rtp_stream = u_d.rtp_stream;
 	auto& sock = *(u_d.sock_ptr);
 	auto& recv_buf = u_d.recv_buf;
+	//
+	rtp_stream.advance_ts(user_data::k_opus_dyn_pt, user_data::k_rtp_advance_interval);
+	auto* opus_data_start = static_cast<unsigned char*>(rtp_stream.fill(pkt_buff.data(), pkt_buff.size()));
 
-	rtp_stream.advance_ts(user_data::k_opus_dyn_pt, rtpp::stream::duration_type{kPeriodSizeInMilliseconds});
-	auto* pkt_data_start = static_cast<unsigned char*>(rtp_stream.fill(pkt_buff.data(), pkt_buff.size()));
-
-	const auto buf_len_remains = pkt_buff.size() - (pkt_data_start - pkt_buff.data());
+	const auto buf_len_remains = pkt_buff.size() - (opus_data_start - pkt_buff.data());
     //
-    if (auto encoded = ::opus_encode(opus_enc, (const opus_int16*)pInput, frameCount, pkt_data_start, buf_len_remains); encoded < 0)
+    if (auto encoded = ::opus_encode(opus_enc, static_cast<const opus_int16*>(pInput), frameCount, opus_data_start, buf_len_remains); encoded < 0)
     {
         std::cerr << get_opus_err_str(encoded) << '\n';
         return;
     }
     else
     {
-		//static auto talkspurt = true;
-	    if (encoded > 2) // not dtx
-	    {
-	    	rtp_stream.advance_seq_num();
-	    	const auto total_pkt_len = pkt_data_start - pkt_buff.data() + encoded;
-#if 0
-	    	std::cerr << "total_pkt_len: " << total_pkt_len << ", encoded: " << encoded << ", frameCount: " << frameCount << '\n';
-	    	auto rtp_pkt = cliph::rtp::rtp{packet_buff.data(), static_cast<size_t>(total_pkt_len)};
-	    	assert(rtp_pkt);
-	    	std::cerr << rtp_pkt << '\n';
-#endif
+		static auto talkspurt_start = true;
+		if (encoded > 2) // not dtx
+		{
+			rtp_stream.advance_seq_num();
+			if (talkspurt_start)
+			{
+				rtpp::rtp{pkt_buff.data(), pkt_buff.size()}.mark();
+				talkspurt_start = false;
+			}
+			const auto total_pkt_len = opus_data_start - pkt_buff.data() + encoded;
 			sock.write(u_d.remote(), pkt_buff.data(), total_pkt_len);
+	    }
+		else
+	    {
+			talkspurt_start = true;
 	    }
     }
 
@@ -348,6 +351,7 @@ void engine::enumerate_and_select()
     std::printf("Select capture device:\n");
     const auto cap_dev_id = dev_id_get(max_cap_dev_id, pCaptureDeviceInfos);
     //
+    constexpr const auto kPeriodSizeInFrames = 0u;
     auto deviceConfig = ma_device_config_init(ma_device_type_duplex);
     // pback props
     deviceConfig.playback.pDeviceID = &pPlaybackDeviceInfos[pb_dev_id].id;
@@ -360,7 +364,7 @@ void engine::enumerate_and_select()
     // common
     deviceConfig.sampleRate       = k_audio_device_sample_rate;
     deviceConfig.periodSizeInFrames = kPeriodSizeInFrames;
-    deviceConfig.periodSizeInMilliseconds = kPeriodSizeInMilliseconds;
+    deviceConfig.periodSizeInMilliseconds = user_data::kPeriodSizeInMilliseconds;
     deviceConfig.dataCallback     = data_callback;
     deviceConfig.pUserData        = &u_d;
 
