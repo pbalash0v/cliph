@@ -2,48 +2,50 @@
 #define audio_engine_hpp
 
 //
-#include "asio/ip/address.hpp"
+#include <chrono>
 #include <string_view>
 #include <cstdint>
 //
 #include <miniaudio.h>
 //
+#include "utils.hpp"
 
-namespace cliph
+namespace cliph::sound
 {
 
 struct config
 {
-	asio::ip::address net_iface;
+	std::chrono::milliseconds m_period_sz{20u};
+	unsigned m_audio_device_sample_rate{48000u};
+	bool m_audio_device_stereo_capture{};
+	bool m_audio_device_stereo_playback{};
 };
 
 class engine final
 {
 public:
-	static engine& get() noexcept;
+	explicit engine(const cliph::sound::config&
+		, utils::audio_circ_buf&, utils::audio_circ_buf&);
 
 public:
-	~engine();
-
-public:
-	engine& init(const config&);
 	//
 	void start();
 	void pause();
 	void stop();
-	//
-	void set_net_sink(std::string_view, std::uint16_t);
-	void set_remote_opus_params(std::uint8_t);
-	//
-	std::string description() const;
 
+public:
+	~engine();
+
+private:
+	cliph::sound::config m_cfg;
+	utils::audio_circ_buf& m_capt_buf;
+	utils::audio_circ_buf& m_playb_buf;
 private:
     ma_device m_device;
     ma_context m_context;
     ma_encoder m_encoder;
 
 private:
-	engine() = default;
 	void enumerate_and_select();
 };
 

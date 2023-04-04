@@ -21,6 +21,13 @@ socket::socket(asio::ip::address local, utils::thread_safe_array& buf)
 	: m_buf{buf}
 	, m_socket{asio::ip::udp::socket{m_io, asio::ip::udp::endpoint{local, 0u}}}
 {
+	u_d.rtp_stream = rtpp::stream{};
+	u_d.rtp_stream.payloads().emplace(user_data::k_opus_dyn_pt, user_data::k_opus_rtp_clock);
+	//
+	u_d.local_media = cfg.net_iface;
+	u_d.sock_ptr = std::make_unique<cliph::net::socket>(cfg.net_iface, u_d.recv_buf);
+	u_d.sock_ptr->run();
+	//	
 }
 
 socket::~socket()
@@ -32,6 +39,11 @@ socket::~socket()
 std::uint16_t socket::port() const noexcept
 {
 	return m_socket.local_endpoint().port();
+}
+
+void socket::set_net_sink(std::string_view ip, std::uint16_t port)
+{
+	m_remote_media = asio::ip::udp::endpoint{asio::ip::make_address_v4(ip), port};
 }
 
 void socket::write(const asio::ip::udp::endpoint& destination, const void* buf, std::size_t len)
@@ -50,7 +62,6 @@ void socket::run()
 
 void socket::stop()
 {
-	m_buf.m_cond.notify_one();
 	m_socket.close();
 	m_io.stop();
 }

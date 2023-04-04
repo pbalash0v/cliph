@@ -11,6 +11,7 @@
 #include "argh.h"
 //
 #include "audio_engine.hpp"
+#include "controller.hpp"
 #include "net.hpp"
 #include "sip_agent.hpp"
 #include "sdp.hpp"
@@ -18,15 +19,9 @@
 namespace
 {
 
-struct config final
+std::optional<cliph::config> get(char** argv)
 {
-	cliph::sip::config sip;
-	cliph::config media;
-};
-
-std::optional<config> get(char** argv)
-{
-	auto ret = config{};
+	auto ret = cliph::config{};
 
 	auto cmdl = argh::parser{argv};
 
@@ -76,7 +71,7 @@ void print_usage(std::string_view binary)
 		<< std::endl;
 }
 
-void fill_local_media_ip(config& cfg)
+void fill_local_media_ip(cliph::config& cfg)
 {
 	if (auto local_ifaces = cliph::net::get_interfaces(); local_ifaces.size() == 1)
 	{
@@ -127,8 +122,9 @@ int main(int /*argc*/, char** argv)
 	{
 		fill_local_media_ip(*cfg);
 
-		cliph::engine::get().init(cfg->media);
-		cliph::sip::agent::get().run(cfg->sip);
+		cliph::controller::get().init(cfg);
+
+		//cliph::sip::agent::get().run(cfg->sip);
 		//
 		std::printf("Press Enter to stop...\n");
 		getchar();

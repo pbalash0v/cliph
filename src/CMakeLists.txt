@@ -13,10 +13,11 @@ add_subdirectory(rtpp)
 set(TARGET_NAME ${PROJECT_NAME}) 
 add_executable(${TARGET_NAME})
 target_sources(${TARGET_NAME} PRIVATE
-	main.cpp
-	audio_engine.cpp
-	sip_agent.cpp
-	net.cpp
+	q_test.cpp
+#	main.cpp
+#	audio_engine.cpp
+#	sip_agent.cpp
+#	net.cpp
 )
 
 #
@@ -32,7 +33,7 @@ target_link_libraries(${TARGET_NAME} PRIVATE
 	rtpp
 )
 set_target_properties(${TARGET_NAME} PROPERTIES
-	CXX_STANDARD 17
+	CXX_STANDARD 20#17
 	CXX_STANDARD_REQUIRED ON
 	CXX_EXTENSIONS OFF
 #	$<$<CONFIG:Release>:INTERPROCEDURAL_OPTIMIZATION ON>

@@ -1,6 +1,4 @@
-#include "asio/ip/address.hpp"
-#include "asio/ip/address_v4.hpp"
-#include "asio/ip/udp.hpp"
+#include "utils.hpp"
 #include <cassert>
 #include <cstdint>
 #include <memory>
@@ -10,75 +8,8 @@
 #include <tuple>
 
 //
-#include <opus.h>
-//
 #define MINIAUDIO_IMPLEMENTATION
 #include "audio_engine.hpp"
-#include "rtp_stream.hpp"
-#include "rtp.hpp"
-#include "net.hpp"
-#include "sdp.hpp"
-#include "utils.hpp"
-
-namespace
-{
-constexpr const auto k_audio_device_sample_rate = 48000u;
-constexpr const auto k_audio_device_channel_count = 1;
-} //namespace
-
-namespace
-{
-
-auto* get_opus_enc()
-{
-    int error{};
-    auto* e = opus_encoder_create(k_audio_device_sample_rate, k_audio_device_channel_count, OPUS_APPLICATION_VOIP, &error);
-    
-    if (error != OPUS_OK)
-    {
-        throw std::runtime_error{"opus_encoder_create failed"};
-    }
-
-    if (auto ret = opus_encoder_ctl(e, OPUS_SET_DTX(1)); ret != OPUS_OK)
-    {
-       throw std::runtime_error{"OPUS_SET_DTX failed"};
-    }
-
-    return e;
-}
-
-auto* get_opus_dec()
-{
-    int error{};
-    auto* e = opus_decoder_create(k_audio_device_sample_rate, k_audio_device_channel_count, &error);
-    
-    if (error != OPUS_OK)
-    {
-        throw std::runtime_error{"opus_encoder_create failed"};
-    }
-
-    return e;
-}
-
-std::string_view get_opus_err_str(opus_int32 err)
-{
-    switch (err)
-    {
-    case OPUS_OK: return "OPUS_OK";
-    case OPUS_BAD_ARG: return "OPUS_BAD_ARG";        
-    case OPUS_BUFFER_TOO_SMALL: return "OPUS_BUFFER_TOO_SMALL";        
-    case OPUS_INTERNAL_ERROR: return "OPUS_INTERNAL_ERROR";
-    case OPUS_INVALID_PACKET: return "OPUS_INVALID_PACKET";
-    case OPUS_UNIMPLEMENTED: return "OPUS_UNIMPLEMENTED";
-    case OPUS_INVALID_STATE: return "OPUS_INVALID_STATE";
-    case OPUS_ALLOC_FAIL: return "OPUS_ALLOC_FAIL";
-    default: return "OPUS_UNKNOWN";
-    }
-}
-
-} // anon namespace
-
-
 
 namespace  
 {
@@ -127,74 +58,32 @@ auto enumerate_cap(ma_context& context)
     return std::tuple{captureDeviceCount-1, pCaptureDeviceInfos};
 }
 
-class user_data final
-{
-public:
-	inline static constexpr const auto kPeriodSizeInMilliseconds = 20u;
-	inline static constexpr const auto k_rtp_advance_interval= rtpp::stream::duration_type{kPeriodSizeInMilliseconds};
-	inline static constexpr const auto k_opus_dyn_pt = 96u;
-	inline static constexpr const auto k_opus_rtp_clock = 48000u;
-public:
-	OpusEncoder* opus_enc_ctx{};
-	OpusDecoder* opus_dec_ctx{};
-	//
-	rtpp::stream rtp_stream;
-	//
-	std::unique_ptr<cliph::net::socket> sock_ptr;
-	//
-	asio::ip::address local_media;
-	//
-	std::atomic<std::uint8_t> m_rmt_opus_pt{};
-	//
-	std::array<unsigned char, 4096> buff;
-	cliph::utils::thread_safe_array recv_buf;
-
-	auto remote()
-	{
-		auto lock_version = std::uint64_t{};
-
-		while (true)
-		{
-			while (true)
-			{
-				lock_version = m_rmt_seq_lock_version.load();
-				if ((lock_version & 1) != 0) continue; //write in progress
-				break;
-			}
-
-			auto res = m_remote;
-			if (m_rmt_seq_lock_version == lock_version)
-			{
-				return res;
-			}
-		}
-	}
-
-	auto remote(asio::ip::udp::endpoint rmt)
-	{
-		m_rmt_seq_lock_version += 1;
-		m_remote = std::move(rmt);
-		m_rmt_seq_lock_version += 1;
-	}
-
-private:
-	//
-	asio::ip::udp::endpoint m_remote;
-
-	std::atomic<std::uint64_t> m_rmt_seq_lock_version{};
-};
-auto u_d = user_data{};
-
 //
+struct user_data
+{
+	cliph::utils::audio_circ_buf* capt_buf{};
+	cliph::utils::audio_circ_buf* playb_buf{};
+};
+user_data u_d;
+
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
 	user_data& u_d = *static_cast<user_data*>(pDevice->pUserData);
-	auto* opus_enc = u_d.opus_enc_ctx;
-	auto* opus_dec = u_d.opus_dec_ctx;
-	auto& pkt_buff = u_d.buff;
-	auto& rtp_stream = u_d.rtp_stream;
-	auto& sock = *(u_d.sock_ptr);
-	auto& recv_buf = u_d.recv_buf;
+
+	//
+	if (!u_d.capt_buf->put(pInput, frameCount))
+	{
+		std::cerr << "Audio buffer overrun" << '\n';
+	}
+
+	auto chunk = cliph::utils::th_safe_circ_buf<int16_t>::chunk_type{};
+	auto* buf = std::get<0>(chunk).data();
+	if (auto frame_sz = u_d.playb_buf->get(buf))
+	{
+		MA_COPY_MEMORY(pOutput, buf, frame_sz*ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+	}
+}
+
 	//
 	rtp_stream.advance_ts(user_data::k_opus_dyn_pt, user_data::k_rtp_advance_interval);
 	auto* opus_data_start = static_cast<unsigned char*>(rtp_stream.fill(pkt_buff.data(), pkt_buff.size()));
@@ -229,7 +118,6 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
     // try playout
 	auto decode_buf = std::array<opus_int16, 2048>{};
 	{
-		auto lock = std::lock_guard{recv_buf};
 		if (recv_buf.m_is_empty)
 		{
 			std::cerr << "Audio buffer underrun" << '\n';
@@ -256,67 +144,36 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 	   	{
             MA_COPY_MEMORY(pOutput, decode_buf.data(), frame_sz * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
 	   	}
-		recv_buf.mark_empty_locked();
 	}
-	recv_buf.m_cond.notify_one();
 }
 
 } //anon namespace
 
 
-namespace cliph
+namespace cliph::sound
 {
 
-engine& engine::get() noexcept
+engine::engine(const cliph::sound::config& cfg
+	, utils::audio_circ_buf& capt_buf
+	, utils::audio_circ_buf& playb_buf)
+	: m_cfg{cfg}
+	, m_capt_buf{capt_buf}
+	, m_playb_buf{playb_buf}
 {
-	static auto instance = engine{};
-	return instance;
-}
+	if (ma_context_init(NULL, 0, NULL, &m_context) != MA_SUCCESS)
+	{
+		throw std::runtime_error{"Failed to initialize context"};
+	}
 
-engine& engine::init(const config& cfg)
-{
-    if (ma_context_init(NULL, 0, NULL, &m_context) != MA_SUCCESS)
-    {
-        throw std::runtime_error{"Failed to initialize context"};
-    }
+	u_d.capt_buf = std::addressof(m_capt_buf);
+	u_d.capt_buf = std::addressof(m_playb_buf);
 
-	u_d.opus_enc_ctx = get_opus_enc();
-	u_d.opus_dec_ctx = get_opus_dec();
-	//
-
-	u_d.rtp_stream = rtpp::stream{};
-	u_d.rtp_stream.payloads().emplace(user_data::k_opus_dyn_pt, user_data::k_opus_rtp_clock);
-	//
-	u_d.local_media = cfg.net_iface;
-	u_d.sock_ptr = std::make_unique<cliph::net::socket>(cfg.net_iface, u_d.recv_buf);
-	u_d.sock_ptr->run();
-	//
 	enumerate_and_select();
-
-	return *this;
 }
 
-void engine::set_net_sink(std::string_view ip, std::uint16_t port)
-{
-	u_d.remote(asio::ip::udp::endpoint{asio::ip::make_address_v4(ip), port});
-}
-
-void engine::set_remote_opus_params(std::uint8_t pt)
-{
-	u_d.m_rmt_opus_pt = pt;
-}
-
-
-std::string engine::description() const
-{
-	return cliph::sdp::get_local(u_d.local_media.to_string(), u_d.sock_ptr->port()).c_str();
-}
 
 engine::~engine()
 {
-	u_d.sock_ptr->stop();
-	::opus_encoder_destroy(u_d.opus_enc_ctx);
-	::opus_decoder_destroy(u_d.opus_dec_ctx);
     ma_device_uninit(&m_device);
     ma_encoder_uninit(&m_encoder);
     ma_context_uninit(&m_context);
@@ -356,15 +213,15 @@ void engine::enumerate_and_select()
     // pback props
     deviceConfig.playback.pDeviceID = &pPlaybackDeviceInfos[pb_dev_id].id;
     deviceConfig.playback.format   = ma_format_s16;
-    deviceConfig.playback.channels = k_audio_device_channel_count;
+    deviceConfig.playback.channels = m_cfg.m_audio_device_stereo_playback ? 2 : 1;
 	// cap props
     deviceConfig.capture.pDeviceID = &pCaptureDeviceInfos[cap_dev_id].id;
     deviceConfig.capture.format   = ma_format_s16;
-    deviceConfig.capture.channels = k_audio_device_channel_count;
+    deviceConfig.capture.channels = m_cfg.m_audio_device_stereo_capture ? 2 : 1;
     // common
-    deviceConfig.sampleRate       = k_audio_device_sample_rate;
+    deviceConfig.sampleRate       = m_cfg.m_audio_device_sample_rate;
     deviceConfig.periodSizeInFrames = kPeriodSizeInFrames;
-    deviceConfig.periodSizeInMilliseconds = user_data::kPeriodSizeInMilliseconds;
+    deviceConfig.periodSizeInMilliseconds = m_cfg.m_period_sz.count();
     deviceConfig.dataCallback     = data_callback;
     deviceConfig.pUserData        = &u_d;
 
@@ -404,11 +261,7 @@ void engine::pause()
 void engine::stop()
 {
 	pause();
-	{
-		auto lock = std::lock_guard{u_d.recv_buf};
-		u_d.recv_buf.mark_empty_locked();
-	}
-    u_d.sock_ptr->stop();
+	while (!u_d.capt_buf->put(nullptr, 0)) {}
 }
 
 } // namespace cliph::audio

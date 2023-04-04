@@ -17,6 +17,11 @@ namespace cliph::net
 
 std::vector<asio::ip::address> get_interfaces();
 
+struct config
+{
+	inline static constexpr const auto k_rtp_advance_interval = rtpp::stream::duration_type{kPeriodSizeInMilliseconds};
+};
+
 class socket final
 {
 public:
@@ -28,6 +33,7 @@ public:
 	void stop();
 	std::uint16_t port() const noexcept;
 	void write(const asio::ip::udp::endpoint&, const void*, std::size_t);
+	void set_net_sink(std::string_view ip, std::uint16_t port);
 
 private:
 	asio::io_context m_io;
@@ -35,6 +41,10 @@ private:
 	asio::ip::udp::socket m_socket;//{m_io};//, asio::ip::udp::endpoint {asio::ip::udp::v4(), 0u}};
 	//
 	std::thread m_read_thread;
+	//
+	asio::ip::address m_local_media;
+	//
+	asio::ip::udp::endpoint m_remote_media;
 
 private:
 	void read_loop();
