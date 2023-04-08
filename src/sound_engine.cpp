@@ -1,5 +1,5 @@
-#include "utils.hpp"
 #include <cassert>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -9,7 +9,10 @@
 
 //
 #define MINIAUDIO_IMPLEMENTATION
-#include "audio_engine.hpp"
+#include "sound_engine.hpp"
+//
+
+using namespace std::chrono_literals;
 
 namespace  
 {
@@ -61,14 +64,45 @@ auto enumerate_cap(ma_context& context)
 //
 struct user_data
 {
-	cliph::utils::audio_circ_buf* capt_buf{};
-	cliph::utils::audio_circ_buf* playb_buf{};
+	cliph::utils::raw_audio_buf* capt_buf{nullptr};
+	cliph::utils::raw_audio_buf* playb_buf{nullptr};
+	std::chrono::microseconds callb_period{0};
 };
 user_data u_d;
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
 	user_data& u_d = *static_cast<user_data*>(pDevice->pUserData);
+	auto& cptb = *u_d.capt_buf;
+	auto& plbb = *u_d.playb_buf;
+	const auto& total_time_budget = u_d.callb_period;
+	assert(u_d.capt_buf);
+	assert(u_d.playb_buf);
+	assert(total_time_budget != std::chrono::microseconds{});
+
+	// Get samples from device
+	const auto start = std::chrono::steady_clock::now();
+	const auto capt_buf_put_time_budget = total_time_budget/2; // TODO: improve ???
+	const auto len = frameCount * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
+	if (!cptb.put_for(pInput, len, capt_buf_put_time_budget))
+	{
+		std::cerr << "Raw audio capture buffer overrun\n";
+	}
+
+	// Put samples to device
+	const auto time_budget_left = std::chrono::steady_clock::now() - start;
+	auto raw_audio_buf = std::array<uint8_t, 4096u>{};
+	if (auto sz = plbb.get_for(raw_audio_buf.data(), raw_audio_buf.size(), time_budget_left))
+	{
+	    MA_COPY_MEMORY(pOutput, raw_audio_buf.data(), *sz * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+	}
+	else
+	{
+		std::cerr << "Raw audio playback buffer underrun\n";
+	}
+}	
+	
+#if 0
 
 	//
 	if (!u_d.capt_buf->put(pInput, frameCount))
@@ -146,6 +180,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 	   	}
 	}
 }
+#endif
 
 } //anon namespace
 
@@ -154,19 +189,20 @@ namespace cliph::sound
 {
 
 engine::engine(const cliph::sound::config& cfg
-	, utils::audio_circ_buf& capt_buf
-	, utils::audio_circ_buf& playb_buf)
+	, utils::raw_audio_buf& capt_buf
+	, utils::raw_audio_buf& playb_buf)
 	: m_cfg{cfg}
-	, m_capt_buf{capt_buf}
-	, m_playb_buf{playb_buf}
+	, m_cpt_buf{capt_buf}
+	, m_plb_buf{playb_buf}
 {
 	if (ma_context_init(NULL, 0, NULL, &m_context) != MA_SUCCESS)
 	{
 		throw std::runtime_error{"Failed to initialize context"};
 	}
 
-	u_d.capt_buf = std::addressof(m_capt_buf);
-	u_d.capt_buf = std::addressof(m_playb_buf);
+	u_d.capt_buf = std::addressof(m_cpt_buf);
+	u_d.playb_buf = std::addressof(m_plb_buf);
+	u_d.callb_period = m_cfg.m_period_sz;
 
 	enumerate_and_select();
 }
@@ -242,7 +278,7 @@ void engine::enumerate_and_select()
 #endif
 }
 
-void engine::start()
+void engine::run()
 {
 	if (auto result = ma_device_start(&m_device); result != MA_SUCCESS)
 	{
@@ -261,7 +297,7 @@ void engine::pause()
 void engine::stop()
 {
 	pause();
-	while (!u_d.capt_buf->put(nullptr, 0)) {}
+	u_d.capt_buf->put(nullptr, 0);
 }
 
 } // namespace cliph::audio

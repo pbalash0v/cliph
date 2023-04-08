@@ -7,18 +7,25 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
 add_subdirectory(rtpp)
+add_subdirectory(utils)
 #################################
 # Define targets
 #################################
 set(TARGET_NAME ${PROJECT_NAME}) 
 add_executable(${TARGET_NAME})
 target_sources(${TARGET_NAME} PRIVATE
-	q_test.cpp
 #	main.cpp
-#	audio_engine.cpp
+	dummy_main.cpp
+	controller.hpp
+	controller.cpp
+	sound_engine.hpp
+	sound_engine.cpp
+	sound_accumulator.hpp
+	sound_accumulator.cpp
 #	sip_agent.cpp
 #	net.cpp
 )
+
 
 #
 target_link_libraries(${TARGET_NAME} PRIVATE
@@ -31,9 +38,10 @@ target_link_libraries(${TARGET_NAME} PRIVATE
 	dum
 	argh
 	rtpp
+	${PROJECT_NAME}_utils
 )
 set_target_properties(${TARGET_NAME} PROPERTIES
-	CXX_STANDARD 20#17
+	CXX_STANDARD 20
 	CXX_STANDARD_REQUIRED ON
 	CXX_EXTENSIONS OFF
 #	$<$<CONFIG:Release>:INTERPROCEDURAL_OPTIMIZATION ON>
