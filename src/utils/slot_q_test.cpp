@@ -10,7 +10,7 @@ using namespace std::chrono_literals;
 
 int main()
 {
-	auto ts_fifo_2 = utils::spsc_circ_fifo_2<int>{};
+	auto ts_fifo_2 = utils::spsc_circ_fifo<int>{};
 
 	using elem_type = int;
 	const auto kLen = 1'000'000;

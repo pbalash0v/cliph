@@ -5,8 +5,8 @@
 //
 #include <opus.h>
 //
-#include "audio_engine.hpp"
-#include "utils.hpp"
+#include "data_types.hpp"
+#include "sound_engine.hpp"
 
 namespace cliph::media
 {
@@ -17,26 +17,28 @@ public:
 	struct config
 	{
 		const sound::config& sound_cfg;
-		inline static constexpr const auto k_opus_dyn_pt = 96u;
-		inline static constexpr const auto k_opus_rtp_clock = 48000u;		
+		bool dtx{false};
+		//inline static constexpr const auto k_opus_dyn_pt = 96u;
+		//inline static constexpr const auto k_opus_rtp_clock = 48000u;
 	};
 
 public:
-	audio(const cliph::media::audio::config&, utils::audio_circ_buf&);
+	audio(const audio::config&, data::media_buf&);
 	~audio();
 
 public:
-	void opus_decoder_params(std::uint8_t pt);
+	void run();
+	//void opus_decoder_params(std::uint8_t pt);
 
 private:
-	utils::audio_circ_buf& m_raw_audio_circ_buf;
+	data::media_buf& m_buf;
 
 private:
-	std::thread m_audio_thr;
-	utils::audio_circ_buf::chunk_type m_audio_chunk;
+	std::thread m_thr;
 	//
 	OpusEncoder* m_opus_enc_ctx{};
 	OpusDecoder* m_opus_dec_ctx{};
+
 private:
 	void loop();
 };

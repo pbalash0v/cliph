@@ -64,8 +64,8 @@ auto enumerate_cap(ma_context& context)
 //
 struct user_data
 {
-	cliph::utils::raw_audio_buf* capt_buf{nullptr};
-	cliph::utils::raw_audio_buf* playb_buf{nullptr};
+	cliph::data::raw_audio_buf* capt_buf{nullptr};
+	cliph::data::raw_audio_buf* playb_buf{nullptr};
 	std::chrono::microseconds callb_period{0};
 };
 user_data u_d;
@@ -98,7 +98,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 	}
 	else
 	{
-		std::cerr << "Raw audio playback buffer underrun\n";
+		//std::cerr << "Raw audio playback buffer underrun\n";
 	}
 }	
 	
@@ -189,8 +189,8 @@ namespace cliph::sound
 {
 
 engine::engine(const cliph::sound::config& cfg
-	, utils::raw_audio_buf& capt_buf
-	, utils::raw_audio_buf& playb_buf)
+	, data::raw_audio_buf& capt_buf
+	, data::raw_audio_buf& playb_buf)
 	: m_cfg{cfg}
 	, m_cpt_buf{capt_buf}
 	, m_plb_buf{playb_buf}

@@ -4,20 +4,20 @@
 #include <algorithm>
 #include <thread>
 //
-//#include "media_engine.hpp"
+
 //#include "sip_agent.hpp"
 //#include "net.hpp"
 #include "sound_accumulator.hpp"
 #include "sound_engine.hpp"
+#include "media_engine.hpp"
 //
+
 namespace cliph
 {
 struct config final
 {
-	//inline static constexpr const auto k_rtp_advance_interval = rtpp::stream::duration_type{kPeriodSizeInMilliseconds};
-
 	//cliph::sip::config sip;
-	sound::config m_snd{};
+	sound::config m_snd;
 	//asio::ip::address media_ip;
 };
 
@@ -35,13 +35,25 @@ public:
 	controller& set_remote_sd(std::uint8_t);
 	//
 	std::string description() const;
-	//
 
 private:
-	//
-	utils::raw_audio_buf m_capt_cbuf;
-	utils::raw_audio_buf m_playb_cbuf;
-	//
+	//! sound source input queue (raw samples)
+	data::raw_audio_buf m_capt_cbuf;
+	//! sound source output queue (raw samples)
+	data::raw_audio_buf m_playb_cbuf;
+	//!
+	//! non-ts egress pipeline audio media chunks storage
+	data::media_stream m_egress_audio_strm;
+	//! indexed ts slot-based accesser to media storage
+	data::media_queue m_egress_audio_q{m_egress_audio_strm};
+	//!
+	data::media_buf m_egress_audio_buf;
+
+	//!
+	//! raw unprotected media storage
+	data::media_stream m_ingress_audio_strm;
+	data::media_queue m_ingress_audio_q{m_ingress_audio_strm};
+
 private:
 	//
 	std::unique_ptr<config> m_cfg_ptr;
@@ -49,12 +61,11 @@ private:
 	std::unique_ptr<sound::engine> m_snd_eng_ptr;
 	//
 	std::unique_ptr<sound::accumulator> m_snd_accum_ptr;
-	//media::audio m_audio{{m_cfg.sound}, m_capt_buf};
-
-	//rtpp::stream rtp_stream;
+	//
+	std::unique_ptr<media::audio> m_audio_media_ptr;
+	//
 
 private:
-	
 	controller() = default;
 
 };

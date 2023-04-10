@@ -11,10 +11,10 @@ namespace cliph::utils
 {
 
 template<typename T, auto cap = 64u>
-class spsc_circ_fifo_2 final
+class spsc_circ_fifo final
 {
 public:	
-	using q_type = spsc_circ_fifo_2<T, cap>;
+	using q_type = spsc_circ_fifo<T, cap>;
 
 template <typename Q>
 class slot
@@ -37,10 +37,11 @@ public:
 
 	slot& operator=(slot&& oth) noexcept
 	{
-		if (&oth == this) return *this;
+		if (&oth == this) { return *this; }
 		m_owner = std::exchange(oth.m_owner, nullptr);
 		m_is_write = std::exchange(oth.m_is_write, false);
 		m_idx = std::exchange(oth.m_idx, 0);
+		return *this;
 	}
 
 	explicit operator bool() const noexcept { return m_owner != nullptr; }
@@ -74,7 +75,7 @@ private:
 	bool m_is_write{false};
 	std::uint_fast64_t m_idx{};
 	//
-	template<typename, auto> friend class spsc_circ_fifo_2;
+	template<typename, auto> friend class spsc_circ_fifo;
 };
 
 public:	
@@ -115,7 +116,7 @@ private:
 #if 0
 
 template<typename T, auto one_chunk_sz = 2048u, auto num_of_chunks = 64u>
-class spsc_circ_fifo final
+class spsc_circ_fifo_ final
 {
 
 template <typename Q>

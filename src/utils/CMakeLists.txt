@@ -29,7 +29,7 @@ target_include_directories(${TARGET_NAME} INTERFACE
 set(TARGET_NAME ${PROJECT_NAME}_utils_test)
 add_executable(${TARGET_NAME})
 target_sources(${TARGET_NAME} PRIVATE
-	mem_chunk_test.cpp
+	ts_mem_chunk_test.cpp
 )
 target_link_libraries(${TARGET_NAME} PRIVATE
 	Threads::Threads
@@ -53,4 +53,17 @@ target_compile_options(${TARGET_NAME} PRIVATE
 	$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -pedantic -Werror>
 )
 
+
+set(TARGET_NAME td_idx_q)
+add_executable(${TARGET_NAME})
+target_sources(${TARGET_NAME} PRIVATE
+	ts_idx_q_test.cpp
+)
+target_link_libraries(${TARGET_NAME} PRIVATE
+	Threads::Threads
+	${PROJECT_NAME}_utils
+)
+target_compile_options(${TARGET_NAME} PRIVATE
+	$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -pedantic -Werror>
+)
 

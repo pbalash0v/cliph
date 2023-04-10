@@ -6,7 +6,7 @@
 //
 #include <miniaudio.h>
 //
-#include "utils.hpp"
+#include "data_types.hpp"
 
 namespace cliph::sound
 {
@@ -23,7 +23,7 @@ struct config
 class engine final
 {
 public:
-	explicit engine(const sound::config&, utils::raw_audio_buf&, utils::raw_audio_buf&);
+	explicit engine(const sound::config&, data::raw_audio_buf&, data::raw_audio_buf&);
 	~engine();
 
 public:
@@ -34,8 +34,8 @@ public:
 
 private:
 	const sound::config& m_cfg;
-	utils::raw_audio_buf& m_cpt_buf;
-	utils::raw_audio_buf& m_plb_buf;
+	data::raw_audio_buf& m_cpt_buf;
+	data::raw_audio_buf& m_plb_buf;
 
 private:
     ma_device m_device;

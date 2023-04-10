@@ -22,6 +22,8 @@ target_sources(${TARGET_NAME} PRIVATE
 	sound_engine.cpp
 	sound_accumulator.hpp
 	sound_accumulator.cpp
+	media_engine.hpp
+	media_engine.cpp
 #	sip_agent.cpp
 #	net.cpp
 )
