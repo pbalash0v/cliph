@@ -9,7 +9,7 @@
 #include "asio/ip/udp.hpp"
 #include "asio.hpp"
 //
-#include "utils.hpp"
+#include "data_types.hpp"
 
 
 namespace cliph::net
@@ -25,7 +25,7 @@ struct config
 class socket final
 {
 public:
-	socket(asio::ip::address, utils::thread_safe_array&);
+	socket(asio::ip::address, data::media_buf&);
 	~socket();
 
 public:
@@ -37,10 +37,10 @@ public:
 
 private:
 	asio::io_context m_io;
-	utils::thread_safe_array& m_buf;
+	data::media_buf& m_buf;
 	asio::ip::udp::socket m_socket;//{m_io};//, asio::ip::udp::endpoint {asio::ip::udp::v4(), 0u}};
 	//
-	std::thread m_read_thread;
+	std::thread m_thr;
 	//
 	asio::ip::address m_local_media;
 	//

@@ -5,11 +5,13 @@
 #include <thread>
 //
 
-//#include "sip_agent.hpp"
-//#include "net.hpp"
+
 #include "sound_accumulator.hpp"
-#include "sound_engine.hpp"
+#include "sound_device.hpp"
 #include "media_engine.hpp"
+#include "rtp.hpp"
+//#include "sip.hpp"
+//#include "net.hpp"
 //
 
 namespace cliph
@@ -48,6 +50,10 @@ private:
 	data::media_queue m_egress_audio_q{m_egress_audio_strm};
 	//!
 	data::media_buf m_egress_audio_buf;
+	//!
+	data::media_buf m_egress_audio_rtp_buf;
+	//!
+	data::media_buf m_egress_net_audio_buf;
 
 	//!
 	//! raw unprotected media storage
@@ -55,15 +61,16 @@ private:
 	data::media_queue m_ingress_audio_q{m_ingress_audio_strm};
 
 private:
-	//
+	//!
 	std::unique_ptr<config> m_cfg_ptr;
-	//
-	std::unique_ptr<sound::engine> m_snd_eng_ptr;
-	//
+	//!
+	std::unique_ptr<sound::device> m_snd_dev_ptr;
+	//!
 	std::unique_ptr<sound::accumulator> m_snd_accum_ptr;
-	//
+	//!
 	std::unique_ptr<media::audio> m_audio_media_ptr;
-	//
+	//!
+	std::unique_ptr<rtp::engine> m_audio_rtp_ptr;
 
 private:
 	controller() = default;

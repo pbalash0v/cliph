@@ -18,13 +18,17 @@ target_sources(${TARGET_NAME} PRIVATE
 	dummy_main.cpp
 	controller.hpp
 	controller.cpp
-	sound_engine.hpp
-	sound_engine.cpp
+	sound_device.hpp
+	sound_device.cpp
 	sound_accumulator.hpp
 	sound_accumulator.cpp
 	media_engine.hpp
 	media_engine.cpp
-#	sip_agent.cpp
+#	sip.hpp
+#	sip.cpp
+	rtp.hpp
+	rtp.cpp
+#	net.hpp
 #	net.cpp
 )
 

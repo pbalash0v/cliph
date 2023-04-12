@@ -6,7 +6,7 @@
 #include <opus.h>
 //
 #include "data_types.hpp"
-#include "sound_engine.hpp"
+#include "sound_device.hpp"
 
 namespace cliph::media
 {
@@ -23,7 +23,7 @@ public:
 	};
 
 public:
-	audio(const audio::config&, data::media_buf&);
+	audio(const audio::config&, data::media_buf&, data::media_buf&);
 	~audio();
 
 public:
@@ -31,7 +31,8 @@ public:
 	//void opus_decoder_params(std::uint8_t pt);
 
 private:
-	data::media_buf& m_buf;
+	data::media_buf& m_in_buf;
+	data::media_buf& m_out_buf;
 
 private:
 	std::thread m_thr;
@@ -40,7 +41,7 @@ private:
 	OpusDecoder* m_opus_dec_ctx{};
 
 private:
-	void loop();
+	void egress_loop();
 };
 } // namespace cliph
 

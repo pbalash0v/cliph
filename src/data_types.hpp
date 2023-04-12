@@ -3,7 +3,6 @@
 
 #include <chrono>
 //
-#include "spsc_circ_fifo.hpp"
 #include "ts_idx_q.hpp"
 #include "ts_mem_chunk.hpp"
 
@@ -14,6 +13,7 @@ using raw_audio_buf = cliph::utils::ts_mem_chunk<>;
 //
 struct media
 {
+//
 	std::array<int16_t, 8192u> raw_audio;
 	std::size_t raw_audio_sz{};
 	std::chrono::milliseconds raw_audio_len{};
@@ -23,6 +23,14 @@ struct media
 	//
 	std::array<uint8_t, 2048u> rtp_data{};
 	std::size_t rtp_data_sz{};
+//
+	void reset()
+	{
+		raw_audio_sz = {};
+		raw_audio_len = {};
+		rtp_hdr_sz = {};
+		rtp_data_sz = {};
+	}
 };
 
 using media_stream = std::array<media, 64u>;

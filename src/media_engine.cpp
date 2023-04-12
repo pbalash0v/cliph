@@ -65,8 +65,11 @@ std::string_view get_opus_err_str(opus_int32 err)
 
 namespace cliph::media
 {
-audio::audio(const audio::config& cfg, data::media_buf& buf)
-	: m_buf{buf}
+audio::audio(const audio::config& cfg
+	, data::media_buf& in_buf
+	, data::media_buf& out_buf)
+	: m_in_buf{in_buf}
+	, m_out_buf{out_buf}
 	, m_opus_enc_ctx{get_opus_enc(cfg.sound_cfg.m_audio_device_sample_rate, /*channel_count*/ 1u, cfg.dtx)}
 	, m_opus_dec_ctx{get_opus_dec(cfg.sound_cfg.m_audio_device_sample_rate, /*channel_count*/ 1u)}
 {
@@ -83,35 +86,38 @@ void audio::run()
 {
 	m_thr = std::thread{[this]
 	{
-		std::cerr << "audio_media loop started\n";
-		loop();
-		std::cerr << "audio_media loop finished\n";
+		std::cerr << "audio_media egress loop started\n";
+		egress_loop();
+		std::cerr << "audio_media egress loop finished\n";
 	}};
-	if (auto rc = ::pthread_setname_np(m_thr.native_handle(), "EG_MED_ENG"))
+	if (auto rc = ::pthread_setname_np(m_thr.native_handle(), "EGRS_MED_ENG"))
 	{
 		throw std::runtime_error{"pthread_setname_np"};
 	}
 }
 
-void audio::loop()
+void audio::egress_loop()
 {
 	while (true)
 	{
 		auto slot = data::slot_type{};
-		m_buf.get(slot);
+		m_in_buf.get(slot);
 		//
-		if ((*slot).raw_audio_sz == 0) { break; }
+		if (slot->raw_audio_sz == 0)
+		{
+			m_out_buf.put(std::move(slot));
+			break;
+		}
 
 		//
-		const auto& raw_audio_data = (*slot).raw_audio.data();
-		const auto& raw_audio_data_sz = (*slot).raw_audio_sz;
-		auto* const encoded_audio_data = (*slot).rtp_data.data();
-		const auto encoded_audio_data_len = (*slot).rtp_data.size();
+		const auto& raw_audio_data = slot->raw_audio.data();
+		const auto& raw_audio_data_sz = slot->raw_audio_sz;
+		auto* const encoded_audio_data = slot->rtp_data.data();
+		const auto encoded_audio_data_len = slot->rtp_data.size();
 		if (auto encoded = ::opus_encode(m_opus_enc_ctx
-			, static_cast<const opus_int16*>(raw_audio_data)
-			, raw_audio_data_sz
-			, encoded_audio_data
-			, encoded_audio_data_len); encoded < 0)
+			, static_cast<const opus_int16*>(raw_audio_data), raw_audio_data_sz
+			, encoded_audio_data, encoded_audio_data_len)
+			; encoded < 0)
 		{
 			std::cerr << get_opus_err_str(encoded) << '\n';
 		}
@@ -123,9 +129,12 @@ void audio::loop()
 			}
 			else
 			{
+				slot->rtp_data_sz = encoded;
 				std::cerr << std::string{"encoded: "} + std::to_string(encoded) + "\n";	
 			}
 		}
+
+		m_out_buf.put(std::move(slot));
 	}
 }
 

@@ -34,7 +34,8 @@ namespace rtpp
 stream::stream()
 	: m_seq_num{distrib_uint16(mt)}
 	, m_ssrc{distrib_uint32(mt)}
-	, m_ts{(distrib_uint32(mt)/10)*10}
+	, m_ts{(distrib_uint32(mt)/100)*100}
+	, m_cur_ts{m_ts}
 	, m_payloads{k_default_profiles}
 {
 }
@@ -45,6 +46,7 @@ void stream::advance_ts(pt_type pt, duration_type duration)
 	// e.g. this would be 8 for PCM 8000 samples/second,
 	// 48 for OPUS 48000 samples/second etc
 	const auto samples_per_ms = m_payloads.at(pt).m_clock / std::chrono::milliseconds{1000}.count();
+	m_cur_ts = m_ts;
 	m_ts += samples_per_ms * duration.count();
 }
 
@@ -60,7 +62,7 @@ void* stream::fill(void* start, std::size_t len, bool mark)
 	rtp_pkt.mark(mark);
 	rtp_pkt.csrc_count(m_csrc_count);
 	rtp_pkt.seq_num(m_seq_num);
-	rtp_pkt.ts(m_ts);
+	rtp_pkt.ts(m_cur_ts);
 	rtp_pkt.pt(m_pt);
 	rtp_pkt.extensions(false);
 	rtp_pkt.ssrc(m_ssrc);

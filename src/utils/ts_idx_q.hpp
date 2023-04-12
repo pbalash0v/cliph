@@ -33,6 +33,11 @@ public:
 			return m_owner->m_wrapped[m_idx];
 		}
 
+		value_type* operator->()
+		{
+		 	return std::addressof(m_owner->m_wrapped[m_idx]);
+		}
+
 		slot(const slot& oth) = delete;
 		slot& operator=(const slot&) = delete;
 

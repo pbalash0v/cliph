@@ -20,11 +20,11 @@ struct config
 	bool m_audio_device_stereo_playback{false};
 };
 
-class engine final
+class device final
 {
 public:
-	explicit engine(const sound::config&, data::raw_audio_buf&, data::raw_audio_buf&);
-	~engine();
+	explicit device(const sound::config&, data::raw_audio_buf&, data::raw_audio_buf&);
+	~device();
 
 public:
 	//

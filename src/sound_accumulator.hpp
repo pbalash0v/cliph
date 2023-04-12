@@ -6,7 +6,7 @@
 #include <vector>
 //
 #include "media_engine.hpp"
-#include "sound_engine.hpp"
+#include "sound_device.hpp"
 #include "data_types.hpp"
 
 namespace cliph

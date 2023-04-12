@@ -33,7 +33,7 @@ void accumulator::run()
 		std::cerr << "accumulator egress_loop finished\n";
 	}};
 
-	if (auto rc = ::pthread_setname_np(m_egress_thr.native_handle(), "EG_SND_ACCUM"))
+	if (auto rc = ::pthread_setname_np(m_egress_thr.native_handle(), "EGRS_SND_ACCUM"))
 	{
 		throw std::runtime_error{"pthread_setname_np"};
 	}
@@ -58,9 +58,10 @@ void accumulator::egress_loop()
 			for (auto slot = m_audio_q.get();; slot = m_audio_q.get())
 			{
 				if (!slot) continue;
-				(*slot).raw_audio_len = curr_accum;
-				(*slot).raw_audio_sz = m_egress_snd_offset/sizeof(int16_t);
-				std::memcpy((*slot).raw_audio.data(), m_egress_snd_accum.data(), m_egress_snd_offset);
+				slot->reset();
+				slot->raw_audio_len = curr_accum;
+				slot->raw_audio_sz = m_egress_snd_offset/sizeof(int16_t);
+				std::memcpy(slot->raw_audio.data(), m_egress_snd_accum.data(), m_egress_snd_offset);
 				std::cerr << "slot filled: " << curr_accum.count() << "ms, len: " << m_egress_snd_offset/2 << '\n';
 				//
 				m_audio_buf.put(std::move(slot));
@@ -75,8 +76,8 @@ void accumulator::egress_loop()
 			for (auto slot = m_audio_q.get();; slot = m_audio_q.get())
 			{
 				if (!slot) continue;
-				(*slot).raw_audio_len = 0ms;
-				(*slot).raw_audio_sz = 0;
+				slot->raw_audio_len = 0ms;
+				slot->raw_audio_sz = 0;
 				m_audio_buf.put(std::move(slot));
 				break;
 			}

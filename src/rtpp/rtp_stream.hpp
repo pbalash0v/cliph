@@ -41,6 +41,7 @@ private:
 	std::uint16_t m_seq_num{};
 	std::uint32_t m_ssrc{};
 	std::uint32_t m_ts{};
+	std::uint32_t m_cur_ts{};
 	std::uint8_t m_csrc_count{};
 	pt_type m_pt{};
 	payload_map_type m_payloads;

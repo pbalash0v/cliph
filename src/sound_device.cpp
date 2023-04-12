@@ -9,7 +9,7 @@
 
 //
 #define MINIAUDIO_IMPLEMENTATION
-#include "sound_engine.hpp"
+#include "sound_device.hpp"
 //
 
 using namespace std::chrono_literals;
@@ -188,7 +188,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 namespace cliph::sound
 {
 
-engine::engine(const cliph::sound::config& cfg
+device::device(const cliph::sound::config& cfg
 	, data::raw_audio_buf& capt_buf
 	, data::raw_audio_buf& playb_buf)
 	: m_cfg{cfg}
@@ -208,14 +208,14 @@ engine::engine(const cliph::sound::config& cfg
 }
 
 
-engine::~engine()
+device::~device()
 {
     ma_device_uninit(&m_device);
     ma_encoder_uninit(&m_encoder);
     ma_context_uninit(&m_context);
 }
 
-void engine::enumerate_and_select()
+void device::enumerate_and_select()
 {
     ///
     const auto dev_id_get = [](auto max_dev_id, auto* device_infos)
@@ -278,7 +278,7 @@ void engine::enumerate_and_select()
 #endif
 }
 
-void engine::run()
+void device::run()
 {
 	if (auto result = ma_device_start(&m_device); result != MA_SUCCESS)
 	{
@@ -286,7 +286,7 @@ void engine::run()
 	}
 }
 
-void engine::pause()
+void device::pause()
 {
 	if (auto result = ma_device_stop(&m_device); result != MA_SUCCESS)
 	{
@@ -294,7 +294,7 @@ void engine::pause()
 	}
 }
 
-void engine::stop()
+void device::stop()
 {
 	pause();
 	u_d.capt_buf->put(nullptr, 0);
