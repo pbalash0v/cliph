@@ -39,7 +39,7 @@ int main()
 				{
 					*slot = v;
 					slot_q.put(std::move(slot));
-					break;					
+					break;
 				}
 				++producer_overrun;
 			}
@@ -69,6 +69,12 @@ int main()
 		while (true)
 		{
 			auto slot = slot_t{};
+#if 0
+			slot_q.get(slot);
+			if (*slot < 0) { break; }
+			*it++ = *slot;
+#endif
+#if 1
 			if (slot_q.try_get(slot))
 			{
 				if (*slot < 0) { break; }
@@ -78,6 +84,7 @@ int main()
 			{
 				++consumer_underrun;
 			}
+#endif
 		}
 		std::cerr << "consumer done\n";
 	}};
@@ -91,11 +98,7 @@ int main()
 	//
 	auto stop = std::chrono::steady_clock::now();	
 	//
-	std::cerr << "elapsed: " << std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count() << "ms" << '\n';
-	assert(std::equal(std::cbegin(consumer_flow), std::cend(consumer_flow), std::cbegin(producer_flow), std::cend(producer_flow)));
-	std::cerr << "producer_overrun: " << producer_overrun << ", consumer_underrun: " << consumer_underrun << '\n';
-
-#ifdef PRINT_DEBUG
+#if 0
 	for (auto i = 0u; i < producer_flow.size(); ++i)
 	{
 		std::cerr << i << " ";
@@ -104,6 +107,10 @@ int main()
 		std::cerr << "\n";
 	}
 #endif
-
-
+	if (!std::equal(std::cbegin(consumer_flow), std::cend(consumer_flow), std::cbegin(producer_flow), std::cend(producer_flow)))
+	{
+		assert(false);
+	}
+	std::cerr << "elapsed: " << std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count() << "ms" << '\n';
+	std::cerr << "producer_overrun: " << producer_overrun << ", consumer_underrun: " << consumer_underrun << '\n';
 }

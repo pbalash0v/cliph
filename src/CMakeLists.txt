@@ -24,12 +24,12 @@ target_sources(${TARGET_NAME} PRIVATE
 	sound_accumulator.cpp
 	media_engine.hpp
 	media_engine.cpp
-#	sip.hpp
-#	sip.cpp
+	sip.hpp
+	sip.cpp
 	rtp.hpp
 	rtp.cpp
-#	net.hpp
-#	net.cpp
+	net.hpp
+	net.cpp
 )
 
 

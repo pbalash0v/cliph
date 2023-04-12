@@ -3,6 +3,7 @@
 //
 #include "controller.hpp"
 #include "media_engine.hpp"
+#include "net.hpp"
 #include "sound_device.hpp"
 
 
@@ -32,6 +33,8 @@ controller& controller::init(const cliph::config& cfg)
 	m_audio_media_ptr = std::make_unique<media::audio>(media::audio::config{m_cfg_ptr->m_snd}
 		, m_egress_audio_buf, m_egress_audio_rtp_buf);
 	m_audio_rtp_ptr = std::make_unique<rtp::engine>(m_egress_audio_rtp_buf, m_egress_net_audio_buf);
+	m_net_ptr = std::make_unique<net::engine>(net::config{}
+		, m_egress_net_audio_buf, m_ingress_audio_q, m_ingress_audio_rtp_buf);
 
 	return *this;
 }

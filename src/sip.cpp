@@ -7,7 +7,7 @@
 //
 #include <time.h>
 //
-#include "audio_engine.hpp"
+#include "controller.hpp"
 #include "resip/dum/AppDialog.hxx"
 #include "resip/dum/AppDialogSet.hxx"
 #include "resip/dum/AppDialogSetFactory.hxx"
@@ -31,7 +31,7 @@
 #include "rutil/Logger.hxx"
 #include "rutil/Random.hxx"
 //
-#include "sip_agent.hpp"
+#include "sip.hpp"
 #include "sdp.hpp"
 
 namespace
@@ -56,18 +56,15 @@ public:
 	resip::SdpContents mSdp;
 
 public:
-	sip_agent()
+	sip_agent(std::string loc_sd)
 	{
-		auto txt = cliph::engine::get().description();
-		auto hfv = resip::HeaderFieldValue{txt.data(), (unsigned int)txt.size()};
+		auto hfv = resip::HeaderFieldValue{loc_sd.c_str(), (unsigned int)loc_sd.size()};
 		auto type = resip::Mime{"application", "sdp"};
 		mSdp = resip::SdpContents{hfv, type};
 	}
 
 	void shutdown()
 	{
-		//
-		cliph::engine::get().stop();
 		done = true;
 	}
 
@@ -100,7 +97,7 @@ public:
 	void onConnected(resip::ClientInviteSessionHandle, const resip::SipMessage& msg) override
 	{
 		std::cout << "ClientInviteSession-onConnected - " << msg.brief() << std::endl;
-		cliph::engine::get().start();
+		//cliph::engine::get().start();
 	}
 
 	void onStaleCallTimeout(resip::ClientInviteSessionHandle) override
@@ -147,8 +144,8 @@ public:
 			{
 				if (codec.getName().prefix("OPUS") or (codec.getName().prefix("opus")))
 				{
-					cliph::engine::get().set_net_sink(list.front().getAddress().c_str(), sdp.session().media().front().port());
-					cliph::engine::get().set_remote_opus_params(static_cast<uint8_t>(codec.payloadType()));
+					//cliph::engine::get().set_net_sink(list.front().getAddress().c_str(), sdp.session().media().front().port());
+					//cliph::engine::get().set_remote_opus_params(static_cast<uint8_t>(codec.payloadType()));
 					return;
 				}
 			}
@@ -171,7 +168,7 @@ public:
 
 		if (auto list = sdp.session().media().front().getConnections(); not list.empty())
 		{
-			cliph::engine::get().set_net_sink(list.front().getAddress().c_str(), sdp.session().media().front().port());
+			//cliph::engine::get().set_net_sink(list.front().getAddress().c_str(), sdp.session().media().front().port());
 		}
 		//sdp->encode(std::cout);
 	}
@@ -259,69 +256,35 @@ public:
 	}
 }; //class sip_agent
 
-#if 0
-class app_dialog_set : public resip::AppDialogSet
-{
-public:
-	app_dialog_set(resip::DialogUsageManager& dum)
-		: resip::AppDialogSet{dum}
-		, mDum{dum}
-	{
-	}
-
-	resip::AppDialog* createAppDialog(const resip::SipMessage&) override
-	{
-		return std::make_unique<resip::AppDialog>(mDum).release();
-	}
-
-	resip::DialogUsageManager& mDum;
-}; // class app_dialog_set
-
-
-class app_dialog_set_factory : public resip::AppDialogSetFactory
-{
-public:
-	resip::AppDialogSet* createAppDialogSet(resip::DialogUsageManager& dum, const resip::SipMessage&)
-	{
-		return std::make_unique<app_dialog_set>(dum).release();
-	}
-
-}; // class app_dialog_set_factory
-#endif
 } // namespace
 
 
 
 namespace cliph::sip
 {
-
-agent& agent::get() noexcept
+ua::ua(const config& cfg)
+	: m_config{cfg}
 {
-	static auto instance = agent{};
-	return instance;
 }
 
-void agent::stop() noexcept
+void ua::stop() noexcept
 {
 	m_should_stop = true;
 }
 
-agent::~agent()
+ua::~ua()
 {
 	stop();
-    if (m_agent_thread.joinable())
+    if (m_agent_thr.joinable())
     {
-		m_agent_thread.join();
+		m_agent_thr.join();
     }
 }
 
-void agent::run(const config& c_cfg)
+void ua::call(std::string local_sd)
 {
-	m_config = c_cfg;
-
-	auto loop = [&]() mutable
-	{
-		//
+    m_agent_thr = std::thread{[&, local_sd=local_sd]
+    {
 		resip::Log::initialize(resip::Log::Cout, (m_config.verbose ? resip::Log::Debug : resip::Log::Info), resip::Data{"cliph"});
 		//
 		auto myAor = resip::NameAddr{resip::Data{m_config.from.c_str()}};
@@ -347,7 +310,7 @@ void agent::run(const config& c_cfg)
 		//
 		dum->setClientAuthManager(std::make_unique<resip::ClientAuthManager>());
 		//
-		auto agent = sip_agent{};
+		auto agent = sip_agent{local_sd};
 		dum->setInviteSessionHandler(&agent);
 		dum->addOutOfDialogHandler(resip::OPTIONS, &agent);
 		//
@@ -389,10 +352,9 @@ void agent::run(const config& c_cfg)
 				}
 			}
 		}
-	};
-
-    m_agent_thread = std::thread{std::move(loop)};
+	}};
 }
+
 
 } // namespace cliph:sip
 

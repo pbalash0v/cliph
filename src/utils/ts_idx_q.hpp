@@ -4,8 +4,10 @@
 #include <cstdio>
 #include <mutex>
 #include <map>
+#include <numeric>
 #include <utility>
 #include <queue>
+#include <vector>
 //
 #include "common_std.hpp"
 
@@ -57,12 +59,15 @@ public:
 
 		explicit operator bool() const noexcept { return m_idx != -1; }
 
-		~slot()
+		~slot() noexcept
 		{
 			if (!*this) { return; }
 
 			auto lk = std::lock_guard{m_owner->m_mtx};
-			m_owner->m_index.push(m_idx);
+#if 0
+			m_owner->m_indices.push(m_idx);
+#endif
+			m_owner->m_indices.push_back(m_idx);
 		}
 
 		slot() = default;
@@ -73,8 +78,6 @@ public:
 		//
 		Q* m_owner{};
 		int m_idx{-1};
-		//
-		template<typename> friend class ts_idx_q;
 	};
 
 public:
@@ -84,10 +87,16 @@ public:
 	ts_idx_q(T& wrapped)
 		: m_wrapped{wrapped}
 	{
+#if 1
+		m_indices.resize(wrapped.size());
+		std::iota(m_indices.begin(), m_indices.end(), 0);
+#endif
+#if 0
 		for (auto i = 0u; i < m_wrapped.size(); ++i)
 		{
-			m_index.push(i);
+			m_indices.push(i);
 		}
+#endif
 	}
 
 	[[nodiscard]] slot<queue_type> get()
@@ -98,14 +107,20 @@ public:
 		}
 		auto lk = std::lock_guard{m_mtx, std::adopt_lock};
 		//
-		if (m_index.empty())
+		if (m_indices.empty())
 		{
 			return {this, -1};
 		}
-		auto idx = m_index.top();
-		m_index.pop();
-		//m_stat[idx]++;
+#if 1
+		auto idx = m_indices.back();
+		m_indices.pop_back();
+#endif
+#if 0
+		auto idx = m_indices.top();
+		m_indices.pop();
+#endif
 		return {this, static_cast<int>(idx)};
+		//m_stat[idx]++;
 	}
 
 #if 0
@@ -122,7 +137,8 @@ private:
 	T& m_wrapped;
 
 private:
-	std::priority_queue<size_t, std::vector<size_t>, std::greater<size_t>> m_index;
+	std::vector<int> m_indices;
+	//std::priority_queue<size_t, std::vector<size_t>, std::greater<size_t>> m_indices;
 	//std::map<size_t, size_t> m_stat;
 	//
 	std::mutex m_mtx;
@@ -136,9 +152,7 @@ class ts_cbuf
 public:
 	void put(T&& val)
 	{
-		while (!(try_put(std::move(val))))
-		{
-		}
+		while (!(try_put(std::move(val)))) {}
 	}
 
 	bool try_put(T&& val)

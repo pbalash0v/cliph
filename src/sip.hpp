@@ -6,8 +6,9 @@
 #include <atomic>
 #include <optional>
 //
-#include "audio_engine.hpp"
 #include "resip/stack/SipStack.hxx"
+//
+#include "controller.hpp"
 
 
 namespace cliph::sip
@@ -30,23 +31,21 @@ struct config
 	transport_config tp_cfg;
 };
 
-class agent final
+class ua final
 {
 public:
-	static agent& get() noexcept;
-	void run(const config& = {});
-	void stop() noexcept;
-	~agent();
+	ua(const config&);
+	~ua();
 
-private:
-	agent() = default;
+	void call(std::string);
+	void stop() noexcept;
 
 private:
 	config m_config{};
-	std::thread m_agent_thread;
+	std::thread m_agent_thr;
 	std::atomic_bool m_should_stop{false};
 
-}; //class agent
+}; //class ua
 
 }// namespace cliph::sip
 

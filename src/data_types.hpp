@@ -13,8 +13,8 @@ using raw_audio_buf = cliph::utils::ts_mem_chunk<>;
 //
 struct media
 {
-//
-	std::array<int16_t, 8192u> raw_audio;
+	//
+	std::array<int16_t, 8192u> raw_audio{};
 	std::size_t raw_audio_sz{};
 	std::chrono::milliseconds raw_audio_len{};
 	//
@@ -23,7 +23,7 @@ struct media
 	//
 	std::array<uint8_t, 2048u> rtp_data{};
 	std::size_t rtp_data_sz{};
-//
+	//
 	void reset()
 	{
 		raw_audio_sz = {};

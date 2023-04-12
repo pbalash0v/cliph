@@ -19,35 +19,43 @@ std::vector<asio::ip::address> get_interfaces();
 
 struct config
 {
-	inline static constexpr const auto k_rtp_advance_interval = rtpp::stream::duration_type{kPeriodSizeInMilliseconds};
+	asio::ip::address m_local_media{};
 };
 
-class socket final
+class engine final
 {
 public:
-	socket(asio::ip::address, data::media_buf&);
-	~socket();
+	engine(const config&, data::media_buf&, data::media_queue&, data::media_buf&);
+	~engine();
 
 public:
 	void run();
 	void stop();
 	std::uint16_t port() const noexcept;
-	void write(const asio::ip::udp::endpoint&, const void*, std::size_t);
-	void set_net_sink(std::string_view ip, std::uint16_t port);
+	void set_remote(std::string_view ip, std::uint16_t port);
 
 private:
+	//! from pipeline to net
+	data::media_buf& m_egress_buf;
+	//! from pipeline to net
+	data::media_queue& m_ingress_audio_q;
+	//! from this module to rtp module
+	data::media_buf& m_ingress_rtp_buf;
+
 	asio::io_context m_io;
-	data::media_buf& m_buf;
-	asio::ip::udp::socket m_socket;//{m_io};//, asio::ip::udp::endpoint {asio::ip::udp::v4(), 0u}};
+	asio::ip::udp::socket m_socket;
 	//
-	std::thread m_thr;
+	std::thread m_ingress_thr;
+	std::thread m_egress_thr;
 	//
 	asio::ip::address m_local_media;
 	//
 	asio::ip::udp::endpoint m_remote_media;
 
 private:
-	void read_loop();
+	void ingress_loop();
+	void egress_loop();
+
 };
 
 } //namespace cliph::net

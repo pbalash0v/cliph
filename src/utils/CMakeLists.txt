@@ -54,7 +54,7 @@ target_compile_options(${TARGET_NAME} PRIVATE
 )
 
 
-set(TARGET_NAME td_idx_q)
+set(TARGET_NAME ts_idx_q)
 add_executable(${TARGET_NAME})
 target_sources(${TARGET_NAME} PRIVATE
 	ts_idx_q_test.cpp

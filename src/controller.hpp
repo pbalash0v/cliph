@@ -10,8 +10,9 @@
 #include "sound_device.hpp"
 #include "media_engine.hpp"
 #include "rtp.hpp"
+#include "net.hpp"
 //#include "sip.hpp"
-//#include "net.hpp"
+
 //
 
 namespace cliph
@@ -39,14 +40,19 @@ public:
 	std::string description() const;
 
 private:
-	//! sound source input queue (raw samples)
+	//! sound source capture queue
+	//! (raw samples from device)
 	data::raw_audio_buf m_capt_cbuf;
-	//! sound source output queue (raw samples)
+	//! sound source palyback queue
+	//! (raw samples to device)
 	data::raw_audio_buf m_playb_cbuf;
+	//!
+	//! egress pipeline
+	//! (device->acuum->encode->rtp->net)
 	//!
 	//! non-ts egress pipeline audio media chunks storage
 	data::media_stream m_egress_audio_strm;
-	//! indexed ts slot-based accesser to media storage
+	//! indexed ts slot-based accessor to media storage
 	data::media_queue m_egress_audio_q{m_egress_audio_strm};
 	//!
 	data::media_buf m_egress_audio_buf;
@@ -54,11 +60,19 @@ private:
 	data::media_buf m_egress_audio_rtp_buf;
 	//!
 	data::media_buf m_egress_net_audio_buf;
-
+	//!
+	//! inegress pipeline
+	//! (net->rtp->decode->acuum->device)
 	//!
 	//! raw unprotected media storage
 	data::media_stream m_ingress_audio_strm;
+	//!
 	data::media_queue m_ingress_audio_q{m_ingress_audio_strm};
+	//!
+	data::media_buf m_ingress_audio_rtp_buf;
+	//!
+	data::media_buf m_ingress_audio_buf;
+	//!
 
 private:
 	//!
@@ -71,6 +85,8 @@ private:
 	std::unique_ptr<media::audio> m_audio_media_ptr;
 	//!
 	std::unique_ptr<rtp::engine> m_audio_rtp_ptr;
+	//!
+	std::unique_ptr<net::engine> m_net_ptr;
 
 private:
 	controller() = default;

@@ -1,3 +1,6 @@
+#include "data_types.hpp"
+#include <array>
+#include <math.h>
 extern "C"
 {
 #include <sys/types.h> // int getifaddrs(struct ifaddrs **ifap); void freeifaddrs(struct ifaddrs *ifa);
@@ -17,75 +20,105 @@ extern "C"
 
 namespace cliph::net
 {
-socket::socket(asio::ip::address local, utils::thread_safe_array& buf)
-	: m_buf{buf}
-	, m_socket{asio::ip::udp::socket{m_io, asio::ip::udp::endpoint{local, 0u}}}
+
+engine::engine(const config& cfg
+	, data::media_buf& from_rtp
+	, data::media_queue& q
+	, data::media_buf& to_rtp)
+	: m_egress_buf{from_rtp}
+	, m_ingress_audio_q{q}
+	, m_ingress_rtp_buf{to_rtp}
+	, m_socket{asio::ip::udp::socket{m_io, asio::ip::udp::endpoint{cfg.m_local_media, 0u}}}
 {
-	u_d.rtp_stream = rtpp::stream{};
-	u_d.rtp_stream.payloads().emplace(user_data::k_opus_dyn_pt, user_data::k_opus_rtp_clock);
-	//
-	u_d.local_media = cfg.net_iface;
-	u_d.sock_ptr = std::make_unique<cliph::net::socket>(cfg.net_iface, u_d.recv_buf);
-	u_d.sock_ptr->run();
-	//	
+	m_io.get_executor().on_work_started();
 }
 
-socket::~socket()
+engine::~engine()
 {
 	stop();
-	if (m_read_thread.joinable()) m_read_thread.join();
+	if (m_ingress_thr.joinable()) { m_ingress_thr.join(); }
+	if (m_egress_thr.joinable()) { m_egress_thr.join(); }
 }
 
-std::uint16_t socket::port() const noexcept
+std::uint16_t engine::port() const noexcept
 {
 	return m_socket.local_endpoint().port();
 }
 
-void socket::set_net_sink(std::string_view ip, std::uint16_t port)
+void engine::set_remote(std::string_view ip, std::uint16_t port)
 {
-	m_remote_media = asio::ip::udp::endpoint{asio::ip::make_address_v4(ip), port};
-}
-
-void socket::write(const asio::ip::udp::endpoint& destination, const void* buf, std::size_t len)
-{
-	m_socket.send_to(asio::buffer(buf, len), destination);
-}
-
-void socket::run()
-{
-	read_loop();
-	m_read_thread = std::thread{[&]()
+	m_io.post([ip=std::string{ip}, port, this]
 	{
-		m_io.run();
-	}};
+		m_remote_media = asio::ip::udp::endpoint{asio::ip::make_address_v4(ip), port};
+	});
 }
 
-void socket::stop()
+void engine::run()
 {
+	m_ingress_thr = std::thread{[this]()
+	{
+		std::cerr << "net ingress_loop started\n";
+		ingress_loop();
+		std::cerr << "net ingress_loop finished\n";
+	}};
+	if (auto rc = ::pthread_setname_np(m_ingress_thr.native_handle(), "INGRS_NET_IO"))
+	{
+		throw std::runtime_error{"pthread_setname_np"};
+	}
+	//
+	m_egress_thr = std::thread{[this]()
+	{
+		std::cerr << "net egress_loop started\n";
+		egress_loop();
+		std::cerr << "net egress_loop finished\n";
+	}};
+	if (auto rc = ::pthread_setname_np(m_egress_thr.native_handle(), "EGRS_NET_IO"))
+	{
+		throw std::runtime_error{"pthread_setname_np"};
+	}
+}
+
+void engine::stop()
+{
+	m_io.get_executor().on_work_finished();
 	m_socket.close();
 	m_io.stop();
 }
 
-void socket::read_loop()
+void engine::egress_loop()
 {
-	m_socket.async_receive(asio::buffer(m_buf.m_buffer), [this](auto err, auto recvd)
+	while (true)
 	{
-		if (err) { return; }
+		auto slot = data::slot_type{};
+		m_egress_buf.get(slot);
 		//
-		{
-			// blocking in async callback is not a good idea
-			// but good for now until some kind of playout buffer gets implemented
-			auto u_lock = std::unique_lock{m_buf.m_mtx};
-			m_buf.mark_filled_locked(recvd);
-			// block waiting for consumer
-			m_buf.m_cond.wait(u_lock, [&]()
-			{
-				return m_buf.m_is_empty;
-			});
-		}
+		if (slot->raw_audio_sz == 0) { break; }
+
 		//
-		read_loop();
-	});
+		const auto* encoded = slot->rtp_data.data();
+		const auto enc_len = slot->rtp_data_sz;
+		const auto* rtp_hdr = slot->rtp_hdr.data();
+		const auto rtp_hdr_len = slot->rtp_hdr_sz;
+		assert(encoded); assert(enc_len); assert(rtp_hdr); assert(rtp_hdr_len);
+		auto sent = m_socket.send_to(std::array<asio::const_buffer, 2>{asio::buffer(encoded, enc_len), asio::buffer(rtp_hdr, rtp_hdr_len)}
+			, m_remote_media);
+		assert(sent);
+	}
+}
+
+void engine::ingress_loop()
+{
+	while (true)
+	{
+		auto slot = m_ingress_audio_q.get();
+		if (!slot) continue;
+		slot->reset();
+		auto from = decltype(m_socket)::endpoint_type{};
+		auto recvd = m_socket.receive_from(asio::buffer(slot->rtp_data), from);
+		slot->rtp_data_sz = recvd;
+
+		m_ingress_rtp_buf.put(std::move(slot));
+	}
 }
 
 } // namespace cliph::net
