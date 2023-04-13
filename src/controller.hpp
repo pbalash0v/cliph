@@ -21,7 +21,7 @@ struct config final
 {
 	//cliph::sip::config sip;
 	sound::config m_snd;
-	//asio::ip::address media_ip;
+	asio::ip::address local_media_ip;
 };
 
 
