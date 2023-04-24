@@ -18,15 +18,11 @@ std::optional<cliph::config> get(char** argv)
 	{
 		return std::nullopt;
 	}
-#if 0	
+	
 	//
 	if (auto callee_uri = cmdl({"-d", "dest"}).str(); not callee_uri.empty())
 	{
 		ret.sip.to = std::move(callee_uri);
-	}
-	else
-	{
-		return std::nullopt;
 	}
 	//
 	if (auto caller_uri = cmdl({"-u", "uri"}).str(); not caller_uri.empty())
@@ -49,7 +45,7 @@ std::optional<cliph::config> get(char** argv)
 	{
 		ret.sip.verbose = true;
 	}
-#endif
+
     return ret;
 }
 
@@ -61,12 +57,55 @@ void print_usage(std::string_view binary)
 		<< std::endl;
 }
 
+void fill_local_media_ip(cliph::config& cfg)
+{
+	if (auto local_ifaces = cliph::net::get_interfaces(); local_ifaces.size() == 1)
+	{
+		std::cerr << local_ifaces.front() << " is used for media stream" << '\n';
+		cfg.local_media_ip = local_ifaces.front();
+	}
+	else
+	{
+		auto iface_idx = 0u;
+		while (true)
+		{
+			std::cout << "Select local network interface for media stream: [0-" << local_ifaces.size() -1 << "]" << std::endl;
+			for (auto it = std::cbegin(local_ifaces), fin = std::cend(local_ifaces); it != fin; ++it)
+			{
+				std::cout << std::distance(std::cbegin(local_ifaces), it) << ": " << *it << std::endl;
+			}
+			//
+			std::cin >> iface_idx;
+		    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+			if (!std::cin.good())
+			{
+				std::cin.clear();
+				std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+				continue;
+			}
+
+			if (iface_idx < local_ifaces.size())
+			{
+				std::cerr << local_ifaces[iface_idx] << " selected" << '\n';
+				cfg.local_media_ip = local_ifaces[iface_idx];
+				return;
+			}
+			else
+			{
+				std::cerr << "wrong selection" << '\n';
+			}
+		}
+	}
+}
+
 }
 
 int main(int /*argc*/, char** argv)
 {
 	if (auto cfg = get(argv))
 	{
+		fill_local_media_ip(*cfg);
+
 		cliph::controller::get().init(*cfg).run();
 		//
 		std::printf("Press Enter to stop...\n");

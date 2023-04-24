@@ -123,7 +123,7 @@ void audio::egress_loop()
 		}
 		else
 		{
-			if (encoded < 3) // DTX 
+			if (encoded < 3) // DTX
 			{
 				std::cerr << "DTX\n";
 			}

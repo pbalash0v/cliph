@@ -1,9 +1,12 @@
 #include <memory>
 #include <stdexcept>
 //
+#include "asio/deferred.hpp"
 #include "controller.hpp"
 #include "media_engine.hpp"
 #include "net.hpp"
+#include "sdp.hpp"
+#include "sip.hpp"
 #include "sound_device.hpp"
 
 
@@ -27,14 +30,14 @@ controller& controller::init(const cliph::config& cfg)
 	if (m_cfg_ptr) { throw std::runtime_error{"Already initialized"}; }
 
 	m_cfg_ptr = std::make_unique<config>(cfg);
-	m_snd_dev_ptr = std::make_unique<sound::device>(m_cfg_ptr->m_snd, m_capt_cbuf, m_playb_cbuf);
-	m_snd_accum_ptr = std::make_unique<sound::accumulator>(*this
-		, *m_cfg_ptr, m_capt_cbuf, m_playb_cbuf, m_egress_audio_q, m_egress_audio_buf);
-	//m_audio_media_ptr = std::make_unique<media::audio>(media::audio::config{m_cfg_ptr->m_snd}
-		//, m_egress_audio_buf, m_egress_audio_rtp_buf);
-	//m_audio_rtp_ptr = std::make_unique<rtp::engine>(m_egress_audio_rtp_buf, m_egress_net_audio_buf);
-	//m_net_ptr = std::make_unique<net::engine>(net::config{}
-		//, m_egress_net_audio_buf, m_ingress_audio_q, m_ingress_audio_rtp_buf);
+
+	m_snd_dev_ptr = std::make_unique<sound::device>(m_cfg_ptr->m_snd
+		, m_egrs_aud_q, m_egrs_aud_strm, m_igrs_aud_q, m_igrs_aud_strm);
+	m_snd_accum_ptr = std::make_unique<sound::accumulator>(*this, *m_cfg_ptr
+		, m_egrs_aud_q, m_egrs_aud_strm, m_igrs_aud_q, m_igrs_aud_strm);
+
+	m_cfg_ptr->sip.cback = [this] (auto kind) { sip_callback(kind); };
+	m_sip_ptr = std::make_unique<sip::ua>(m_cfg_ptr->sip);
 
 	return *this;
 }
@@ -43,10 +46,7 @@ void controller::run()
 {
 	if (!m_cfg_ptr) { throw std::runtime_error{"Uninitialized"}; }
 
-	//m_audio_rtp_ptr->run();
-	//m_audio_media_ptr->run();
-	m_snd_accum_ptr->run();
-	m_snd_dev_ptr->run();
+	m_sip_ptr->call(cliph::sdp::get_local(m_cfg_ptr->local_media_ip.to_string(), m_snd_accum_ptr->port()).c_str());
 }
 
 void controller::stop()
@@ -56,10 +56,28 @@ void controller::stop()
 	m_snd_dev_ptr->stop();
 }
 
-std::string controller::description() const
+void controller::sip_callback(sip::event evt)
 {
-	//return cliph::sdp::get_local(local_media.to_string(), sock_ptr->port()).c_str();
-	return {};
+	switch (evt.m_kind)
+	{
+	case sip::event::kind::on_answer:
+		{
+			auto r_media_ip = asio::ip::make_address_v4(evt.m_remote_media_ept->first);
+			auto r_media_port = evt.m_remote_media_ept->second;
+			auto remote = asio::ip::udp::endpoint{std::move(r_media_ip), r_media_port};
+			m_snd_accum_ptr->remote_media() = std::move(remote);
+			m_snd_accum_ptr->run();
+			m_snd_dev_ptr->run();
+		}
+		break;
+	case sip::event::kind::on_connected:
+		break;
+	case sip::event::kind::on_hangup:
+		m_snd_dev_ptr->stop();
+		break;		
+	default:
+		throw std::runtime_error{"unhandled event"};
+	}
 }
 
 } // namespace cliph

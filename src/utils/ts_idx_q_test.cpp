@@ -10,12 +10,14 @@
 using namespace cliph;
 using namespace std::chrono_literals;
 
+[[maybe_unused]] constexpr const auto k_work_duration = std::chrono::nanoseconds{500};
+
 int main()
 {
 	using elem_type = int;
 
 	auto wrapped = std::array<int, 64u>{};
-	auto q = utils::ts_idx_q{wrapped};
+	auto q = utils::ts_idx_queue{wrapped};
 
 	using slot_t = typename decltype(q)::slot_type;
 	auto slot_q = utils::ts_cbuf<slot_t>{};
@@ -33,6 +35,9 @@ int main()
 	{
 		for (const auto& v : producer_flow) 
 		{
+#ifdef SIMULATE_WORK
+			std::this_thread::sleep_for(k_work_duration);
+#endif
 			for (auto slot = q.get();; slot = q.get())
 			{
 				if (slot)
@@ -69,12 +74,12 @@ int main()
 		while (true)
 		{
 			auto slot = slot_t{};
-#if 0
+#if 1
 			slot_q.get(slot);
 			if (*slot < 0) { break; }
 			*it++ = *slot;
 #endif
-#if 1
+#if 0
 			if (slot_q.try_get(slot))
 			{
 				if (*slot < 0) { break; }
@@ -84,6 +89,9 @@ int main()
 			{
 				++consumer_underrun;
 			}
+#endif
+#ifdef SIMULATE_WORK
+		std::this_thread::sleep_for(k_work_duration);
 #endif
 		}
 		std::cerr << "consumer done\n";

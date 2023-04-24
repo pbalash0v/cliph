@@ -10,13 +10,7 @@ template<auto capacity_ = 4096u>
 class ts_mem_chunk
 {
 public:
-	void put(const void* src, std::size_t len)
-	{
-		put_impl(src, len);
-	}
-
-	bool put_for(const void* src, std::size_t len
-		, std::chrono::nanoseconds until)
+	bool put(const void* src, std::size_t len, std::chrono::nanoseconds until = decltype(until){})
 	{
 		return put_impl(src, len, until);
 	}
@@ -43,16 +37,15 @@ private:
 	std::condition_variable m_cond;
 
 private:
-	bool put_impl(const void* src, std::size_t len
-		, std::optional<std::chrono::nanoseconds> until = std::nullopt)
+	bool put_impl(const void* src, std::size_t len, std::chrono::nanoseconds until)
 	{
 		if (len > capacity_) { throw std::runtime_error {"Length is too big"}; }
 
-		auto start = std::chrono::steady_clock::now();
-
+		const auto is_timed = (until == decltype(until){});
+		const auto start = std::chrono::steady_clock::now();
 		while (true)
 		{
-			if (until && std::chrono::steady_clock::now() - start > *until) { return false; }
+			if (is_timed && std::chrono::steady_clock::now() - start > until) { return false; }
 
 			if (m_mtx.try_lock())
 			{

@@ -23,7 +23,9 @@ struct config
 class device final
 {
 public:
-	explicit device(const sound::config&, data::raw_audio_buf&, data::raw_audio_buf&);
+	explicit device(const sound::config&
+		, data::media_queue&, data::media_stream&
+		, data::media_queue&, data::media_stream&);
 	~device();
 
 public:
@@ -33,9 +35,14 @@ public:
 	void stop();
 
 private:
+	//
 	const sound::config& m_cfg;
-	data::raw_audio_buf& m_cpt_buf;
-	data::raw_audio_buf& m_plb_buf;
+	//
+	data::media_queue& m_cpt_q;
+	data::media_stream& m_cpt_strm;
+	//
+	data::media_queue& m_plb_q;
+	data::media_stream& m_plb_strm;
 
 private:
     ma_device m_device;

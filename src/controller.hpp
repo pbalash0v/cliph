@@ -4,23 +4,24 @@
 #include <algorithm>
 #include <thread>
 //
-
-
+#include "data_types.hpp"
 #include "sound_accumulator.hpp"
 #include "sound_device.hpp"
-#include "media_engine.hpp"
-#include "rtp.hpp"
+//#include "media_engine.hpp"
+//#include "rtp.hpp"
 #include "net.hpp"
-//#include "sip.hpp"
-
+#include "sip.hpp"
 //
 
 namespace cliph
 {
 struct config final
 {
-	//cliph::sip::config sip;
+	//
 	sound::config m_snd;
+	//
+	cliph::sip::config sip;
+	//
 	asio::ip::address local_media_ip;
 };
 
@@ -33,46 +34,27 @@ public:
 	void run();
 	void stop();
 
-public:
-	//controller& set_net_sink(std::string_view, std::uint16_t);
-	controller& set_remote_sd(std::uint8_t);
-	//
-	std::string description() const;
-
 private:
-	//! sound source capture queue
-	//! (raw samples from device)
-	data::raw_audio_buf m_capt_cbuf;
-	//! sound source palyback queue
-	//! (raw samples to device)
-	data::raw_audio_buf m_playb_cbuf;
 	//!
 	//! egress pipeline
 	//! (device->acuum->encode->rtp->net)
 	//!
 	//! non-ts egress pipeline audio media chunks storage
-	data::media_stream m_egress_audio_strm;
+	data::media_storage m_egrs_aud_storage;
 	//! indexed ts slot-based accessor to media storage
-	data::media_queue m_egress_audio_q{m_egress_audio_strm};
-	//!
-	data::media_buf m_egress_audio_buf;
-	//!
-	data::media_buf m_egress_audio_rtp_buf;
-	//!
-	data::media_buf m_egress_net_audio_buf;
+	data::media_queue m_egrs_aud_q{m_egrs_aud_storage};
+	//! ring buf of accessor slots
+	data::media_stream m_egrs_aud_strm;
 	//!
 	//! inegress pipeline
 	//! (net->rtp->decode->acuum->device)
 	//!
 	//! raw unprotected media storage
-	data::media_stream m_ingress_audio_strm;
+	data::media_storage m_igrs_aud_storage;
 	//!
-	data::media_queue m_ingress_audio_q{m_ingress_audio_strm};
+	data::media_queue m_igrs_aud_q{m_igrs_aud_storage};
 	//!
-	data::media_buf m_ingress_audio_rtp_buf;
-	//!
-	data::media_buf m_ingress_audio_buf;
-	//!
+	data::media_stream m_igrs_aud_strm;
 
 private:
 	//!
@@ -82,14 +64,11 @@ private:
 	//!
 	std::unique_ptr<sound::accumulator> m_snd_accum_ptr;
 	//!
-	std::unique_ptr<media::audio> m_audio_media_ptr;
-	//!
-	std::unique_ptr<rtp::engine> m_audio_rtp_ptr;
-	//!
-	std::unique_ptr<net::engine> m_net_ptr;
+	std::unique_ptr<sip::ua> m_sip_ptr;
 
 private:
 	controller() = default;
+	void sip_callback(sip::event);
 
 };
 } // namespace cliph

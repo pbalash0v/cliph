@@ -64,33 +64,46 @@ auto enumerate_cap(ma_context& context)
 //
 struct user_data
 {
-	cliph::data::raw_audio_buf* capt_buf{nullptr};
-	cliph::data::raw_audio_buf* playb_buf{nullptr};
-	std::chrono::microseconds callb_period{0};
+	cliph::data::media_queue* cpt_q{nullptr};
+	cliph::data::media_stream* cpt_strm{nullptr};
+	//
+	cliph::data::media_queue* ply_q{nullptr};
+	cliph::data::media_stream* ply_strm{nullptr};
+	//
+	std::chrono::milliseconds callb_period{0};
+	unsigned sample_rate{};
 };
 user_data u_d;
 
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
 	user_data& u_d = *static_cast<user_data*>(pDevice->pUserData);
-	auto& cptb = *u_d.capt_buf;
-	auto& plbb = *u_d.playb_buf;
-	const auto& total_time_budget = u_d.callb_period;
-	assert(u_d.capt_buf);
-	assert(u_d.playb_buf);
-	assert(total_time_budget != std::chrono::microseconds{});
+	assert(u_d.cpt_q); assert(u_d.ply_q);
+	auto& cpt_q = *u_d.cpt_q;
+	auto& cpt_strm = *u_d.cpt_strm;
+	auto& ply_q = *u_d.ply_q;
+	auto& ply_strm = *u_d.ply_strm;
 
 	// Get samples from device
-	const auto start = std::chrono::steady_clock::now();
-	const auto capt_buf_put_time_budget = total_time_budget/2; // TODO: improve ???
-	const auto len = frameCount * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
-	if (!cptb.put_for(pInput, len, capt_buf_put_time_budget))
+	const auto bytes_supplied = frameCount*ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
+	if (auto slot = cpt_q.get())
+	{
+		auto& media = (*slot).m_sound;
+		MA_COPY_MEMORY(media.data.data(), pInput, bytes_supplied);
+		media.sz = u_d.callb_period;
+		media.sample_count = frameCount;
+		media.sample_rate = u_d.sample_rate;
+		if (!cpt_strm.try_put(std::move(slot)))
+		{
+			std::cerr << "Slot ring capture buffer overrun\n";
+		}
+	}
+	else
 	{
 		std::cerr << "Raw audio capture buffer overrun\n";
 	}
-
+#if 0
 	// Put samples to device
-	const auto time_budget_left = std::chrono::steady_clock::now() - start;
 	auto raw_audio_buf = std::array<uint8_t, 4096u>{};
 	if (auto sz = plbb.get_for(raw_audio_buf.data(), raw_audio_buf.size(), time_budget_left))
 	{
@@ -100,6 +113,7 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 	{
 		//std::cerr << "Raw audio playback buffer underrun\n";
 	}
+#endif
 }	
 	
 #if 0
@@ -189,20 +203,27 @@ namespace cliph::sound
 {
 
 device::device(const cliph::sound::config& cfg
-	, data::raw_audio_buf& capt_buf
-	, data::raw_audio_buf& playb_buf)
+	, data::media_queue& capt_q
+	, data::media_stream& capt_strm
+	, data::media_queue& playb_q
+	, data::media_stream& playb_strm)
 	: m_cfg{cfg}
-	, m_cpt_buf{capt_buf}
-	, m_plb_buf{playb_buf}
+	, m_cpt_q{capt_q}
+	, m_cpt_strm{capt_strm}
+	, m_plb_q{playb_q}
+	, m_plb_strm{playb_strm}
 {
 	if (ma_context_init(NULL, 0, NULL, &m_context) != MA_SUCCESS)
 	{
 		throw std::runtime_error{"Failed to initialize context"};
 	}
 
-	u_d.capt_buf = std::addressof(m_cpt_buf);
-	u_d.playb_buf = std::addressof(m_plb_buf);
+	u_d.cpt_q = std::addressof(m_cpt_q);
+	u_d.cpt_strm = std::addressof(m_cpt_strm);
+	u_d.ply_q = std::addressof(m_plb_q);
+	u_d.ply_strm = std::addressof(m_plb_strm);
 	u_d.callb_period = m_cfg.m_period_sz;
+	u_d.sample_rate = m_cfg.m_audio_device_sample_rate;
 
 	enumerate_and_select();
 }
@@ -297,7 +318,15 @@ void device::pause()
 void device::stop()
 {
 	pause();
-	u_d.capt_buf->put(nullptr, 0);
+	for (;;)
+	{
+		if (auto slot = m_cpt_q.get())
+		{
+			slot->reset();
+			m_cpt_strm.put(std::move(slot));
+			break;
+		}
+	}
 }
 
 } // namespace cliph::audio

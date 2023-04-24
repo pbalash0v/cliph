@@ -23,7 +23,11 @@ public:
 	};
 
 public:
-	audio(const audio::config&, data::media_buf&, data::media_buf&);
+	audio(const audio::config&
+		, data::media_queue&
+		, data::media_stream&
+		, data::media_queue&
+		, data::media_stream&);
 	~audio();
 
 public:
@@ -31,8 +35,11 @@ public:
 	//void opus_decoder_params(std::uint8_t pt);
 
 private:
-	data::media_buf& m_in_buf;
-	data::media_buf& m_out_buf;
+	data::media_queue& m_out_q;
+	data::media_stream& m_cpt_strm;
+
+	data::media_queue& m_in_q;
+	data::media_stream& m_in_strm;
 
 private:
 	std::thread m_thr;

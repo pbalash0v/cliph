@@ -13,13 +13,15 @@
 
 namespace cliph::utils
 {
+#define PQ_INDEXING
+//#define DBG_MAP
 
 template<typename T>
-class ts_idx_q final
+class ts_idx_queue final
 {
 public:
 	using container_type = T;
-	using queue_type = ts_idx_q<container_type>;
+	using queue_type = ts_idx_queue<container_type>;
 	using value_type = typename container_type::value_type;
 
 public:	
@@ -64,10 +66,11 @@ public:
 			if (!*this) { return; }
 
 			auto lk = std::lock_guard{m_owner->m_mtx};
-#if 0
+#ifdef PQ_INDEXING
 			m_owner->m_indices.push(m_idx);
-#endif
+#else
 			m_owner->m_indices.push_back(m_idx);
+#endif // PQ_INDEXING
 		}
 
 		slot() = default;
@@ -81,25 +84,24 @@ public:
 	};
 
 public:
-	using slot_type = typename ts_idx_q<container_type>::slot<queue_type>;
+	using slot_type = typename ts_idx_queue<container_type>::slot<queue_type>;
 
 public:
-	ts_idx_q(T& wrapped)
+	ts_idx_queue(T& wrapped)
 		: m_wrapped{wrapped}
 	{
-#if 1
-		m_indices.resize(wrapped.size());
-		std::iota(m_indices.begin(), m_indices.end(), 0);
-#endif
-#if 0
+#ifdef PQ_INDEXING
 		for (auto i = 0u; i < m_wrapped.size(); ++i)
 		{
 			m_indices.push(i);
 		}
-#endif
+#else
+		m_indices.resize(wrapped.size());
+		std::iota(m_indices.begin(), m_indices.end(), 0);
+#endif // PQ_INDEXING
 	}
 
-	[[nodiscard]] slot<queue_type> get()
+	[[nodiscard]] slot_type get()
 	{
 		while (!m_mtx.try_lock())
 		{
@@ -111,19 +113,20 @@ public:
 		{
 			return {this, -1};
 		}
-#if 1
-		auto idx = m_indices.back();
-		m_indices.pop_back();
-#endif
-#if 0
+#ifdef PQ_INDEXING
 		auto idx = m_indices.top();
 		m_indices.pop();
-#endif
-		return {this, static_cast<int>(idx)};
-		//m_stat[idx]++;
+#else
+		auto idx = m_indices.back();
+		m_indices.pop_back();
+#endif // PQ_INDEXING
+#ifdef DBG_MAP
+		m_stat[idx]++;
+#endif // DBG_MAP
+		return {this, idx};
 	}
 
-#if 0
+#ifdef DBG_MAP
 	~ts_idx_q()
 	{
 		for (auto [idx, freq] : m_stat)
@@ -137,9 +140,15 @@ private:
 	T& m_wrapped;
 
 private:
+#ifdef PQ_INDEXING
+	std::priority_queue<int, std::vector<int>, std::greater<int>> m_indices;
+#else
 	std::vector<int> m_indices;
-	//std::priority_queue<size_t, std::vector<size_t>, std::greater<size_t>> m_indices;
+#endif // PQ_INDEXING
+	//
+#ifdef DBG_MAP
 	//std::map<size_t, size_t> m_stat;
+#endif
 	//
 	std::mutex m_mtx;
 	std::condition_variable m_cond;

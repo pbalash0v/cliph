@@ -54,9 +54,11 @@ class sip_agent : public resip::InviteSessionHandler, public resip::OutOfDialogH
 public:	
 	bool done {false};
 	resip::SdpContents mSdp;
+	cliph::sip::callback_type m_cback;
 
 public:
-	sip_agent(std::string loc_sd)
+	sip_agent(std::string loc_sd, cliph::sip::callback_type&& cback)
+		: m_cback{cback}
 	{
 		auto hfv = resip::HeaderFieldValue{loc_sd.c_str(), (unsigned int)loc_sd.size()};
 		auto type = resip::Mime{"application", "sdp"};
@@ -97,7 +99,7 @@ public:
 	void onConnected(resip::ClientInviteSessionHandle, const resip::SipMessage& msg) override
 	{
 		std::cout << "ClientInviteSession-onConnected - " << msg.brief() << std::endl;
-		//cliph::engine::get().start();
+		m_cback({cliph::sip::event::kind::on_connected});
 	}
 
 	void onStaleCallTimeout(resip::ClientInviteSessionHandle) override
@@ -123,6 +125,7 @@ public:
 			std::cout << msg->brief() << std::endl;
 		}
 		std::cout << std::endl;
+		m_cback({cliph::sip::event::kind::on_hangup});
 		shutdown();
 	}
 
@@ -131,46 +134,52 @@ public:
 		std::cout << "InviteSession-onAnswer(SDP)" << std::endl;
 		sdp.encode(std::cout);
 
-		if (auto list = sdp.session().media().front().getConnections(); not list.empty())
+		const auto hangup = [&](const auto& what)
 		{
-			if (sdp.session().media().front().name() != "audio")
-			{
-				std::cout << "First media section is not audio" << std::endl;
-				is->end();
-				return;
-			}
+			std::cout << what << std::endl;
+			is->end();
+			m_cback({cliph::sip::event::kind::on_hangup});
+		};
 
-			for (const auto& codec : sdp.session().media().front().codecs())
-			{
-				if (codec.getName().prefix("OPUS") or (codec.getName().prefix("opus")))
-				{
-					//cliph::engine::get().set_net_sink(list.front().getAddress().c_str(), sdp.session().media().front().port());
-					//cliph::engine::get().set_remote_opus_params(static_cast<uint8_t>(codec.payloadType()));
-					return;
-				}
-			}
-			std::cout << "No OPUS codec in answer SDP" << std::endl;
+		if (sdp.session().media().front().name() != "audio")
+		{
+			hangup("First media section is not audio");
+			return;
 		}
 
-		is->end();
+		auto list = sdp.session().media().front().getConnections();
+		if (list.empty()) // TODO: look up connection in sdp globals
+		{
+			hangup("Front media section has no connection");
+			return;
+		}
+
+		for (const auto& codec : sdp.session().media().front().codecs())
+		{
+			if (codec.getName().prefix("OPUS") or (codec.getName().prefix("opus")))
+			{
+				auto ept = cliph::sip::event::media_ept_type{list.front().getAddress().c_str(), sdp.session().media().front().port()};
+				auto opus_pt = static_cast<uint8_t>(codec.payloadType());
+				auto ret = cliph::sip::event{cliph::sip::event::kind::on_answer, std::move(ept), opus_pt};
+				m_cback(std::move(ret));
+				return;
+			}
+		}
+
+		hangup("No OPUS codec in answer SDP");
 	}
 
 	void onOffer(resip::InviteSessionHandle is, const resip::SipMessage&, const resip::SdpContents& sdp) override
 	{
 		std::cout << "InviteSession-onOffer(SDP)" << std::endl;
+		sdp.encode(std::cout);
 		is->reject(488u);
-		//sdp->encode(std::cout);
 	}
 
 	void onEarlyMedia(resip::ClientInviteSessionHandle, const resip::SipMessage&, const resip::SdpContents& sdp) override
 	{
 		std::cout << "InviteSession-onEarlyMedia(SDP)" << std::endl;
-
-		if (auto list = sdp.session().media().front().getConnections(); not list.empty())
-		{
-			//cliph::engine::get().set_net_sink(list.front().getAddress().c_str(), sdp.session().media().front().port());
-		}
-		//sdp->encode(std::cout);
+		sdp.encode(std::cout);
 	}
 
 	void onOfferRequired(resip::InviteSessionHandle, const resip::SipMessage& msg) override
@@ -259,7 +268,6 @@ public:
 } // namespace
 
 
-
 namespace cliph::sip
 {
 ua::ua(const config& cfg)
@@ -283,7 +291,7 @@ ua::~ua()
 
 void ua::call(std::string local_sd)
 {
-    m_agent_thr = std::thread{[&, local_sd=local_sd]
+    m_agent_thr = std::thread{[&, local_sd=std::move(local_sd)]
     {
 		resip::Log::initialize(resip::Log::Cout, (m_config.verbose ? resip::Log::Debug : resip::Log::Info), resip::Data{"cliph"});
 		//
@@ -310,7 +318,7 @@ void ua::call(std::string local_sd)
 		//
 		dum->setClientAuthManager(std::make_unique<resip::ClientAuthManager>());
 		//
-		auto agent = sip_agent{local_sd};
+		auto agent = sip_agent{local_sd, std::move(m_config.cback)};
 		dum->setInviteSessionHandler(&agent);
 		dum->addOutOfDialogHandler(resip::OPTIONS, &agent);
 		//
