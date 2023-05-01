@@ -1,6 +1,7 @@
 #ifndef sound_accumulator_hpp
 #define sound_accumulator_hpp
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <thread>
@@ -68,12 +69,14 @@ private:
 	std::thread m_ingress_thr;
 	//
 	std::array<std::int16_t, 8192u> m_egress_snd_accum{};
-	std::size_t m_egress_snd_offset{};
+	std::size_t m_egress_sample_count{};
+	std::size_t m_egress_bytes_count{};
+	std::chrono::milliseconds m_egress_snd_sz{};
 	//
 	std::array<std::int16_t, 8192u> m_ingress_snd_accum{};
 	std::size_t m_ingress_snd_offset{};
 	//
-	std::chrono::milliseconds m_next_len{20};
+	std::chrono::milliseconds m_next_len{10};
 	//
 	OpusEncoder* m_opus_enc_ctx{};
 	OpusDecoder* m_opus_dec_ctx{};
@@ -86,8 +89,8 @@ private:
 	asio::ip::udp::endpoint m_remote_media;
 
 private:	
-	void egress_loop();
-	void ingress_loop();
+	void egress_loop(bool debug = true);
+	void ingress_loop(bool debug = false);
 
 };
 

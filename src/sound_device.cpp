@@ -1,6 +1,7 @@
 #include <cassert>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -84,16 +85,19 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 	auto& ply_q = *u_d.ply_q;
 	auto& ply_strm = *u_d.ply_strm;
 
+	//
 	// Get samples from device
-	const auto bytes_supplied = frameCount*ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
+	//
 	if (auto slot = cpt_q.get())
 	{
-		auto& media = (*slot).m_sound;
-		MA_COPY_MEMORY(media.data.data(), pInput, bytes_supplied);
+		auto& media = slot->m_sound;
+		const auto bytes = frameCount * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
+		MA_COPY_MEMORY(media.data.data(), pInput, bytes);
 		media.sz = u_d.callb_period;
 		media.sample_count = frameCount;
+		media.bytes_count = bytes;
 		media.sample_rate = u_d.sample_rate;
-		if (!cpt_strm.try_put(std::move(slot)))
+		if (not cpt_strm.try_put(std::move(slot)))
 		{
 			std::cerr << "Slot ring capture buffer overrun\n";
 		}
@@ -102,100 +106,33 @@ void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uin
 	{
 		std::cerr << "Raw audio capture buffer overrun\n";
 	}
-#if 0
+
+	//
 	// Put samples to device
-	auto raw_audio_buf = std::array<uint8_t, 4096u>{};
-	if (auto sz = plbb.get_for(raw_audio_buf.data(), raw_audio_buf.size(), time_budget_left))
+	//
+	using slot_type = typename std::remove_reference_t<decltype(ply_q)>::slot_type;
+	auto slot = slot_type{};
+	if (ply_strm.try_get(slot))
 	{
-	    MA_COPY_MEMORY(pOutput, raw_audio_buf.data(), *sz * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+		if (
+			(slot->m_sound.sample_rate != 48000u)
+			or (slot->m_sound.sample_count == 0)
+			or (slot->m_sound.sz != u_d.callb_period)
+			)
+		{
+			std::cerr << "Unhandled media element, playback failed" << '\n';
+			return;
+		}
+
+		const auto bytes = slot->m_sound.sample_count * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels);
+	    MA_COPY_MEMORY(pOutput, slot->m_sound.data.data(), bytes);
+	    slot->reset();
 	}
 	else
 	{
-		//std::cerr << "Raw audio playback buffer underrun\n";
-	}
-#endif
-}	
-	
-#if 0
-
-	//
-	if (!u_d.capt_buf->put(pInput, frameCount))
-	{
-		std::cerr << "Audio buffer overrun" << '\n';
-	}
-
-	auto chunk = cliph::utils::th_safe_circ_buf<int16_t>::chunk_type{};
-	auto* buf = std::get<0>(chunk).data();
-	if (auto frame_sz = u_d.playb_buf->get(buf))
-	{
-		MA_COPY_MEMORY(pOutput, buf, frame_sz*ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
+		std::cerr << "Raw audio playback buffer underrun\n";
 	}
 }
-
-	//
-	rtp_stream.advance_ts(user_data::k_opus_dyn_pt, user_data::k_rtp_advance_interval);
-	auto* opus_data_start = static_cast<unsigned char*>(rtp_stream.fill(pkt_buff.data(), pkt_buff.size()));
-
-	const auto buf_len_remains = pkt_buff.size() - (opus_data_start - pkt_buff.data());
-    //
-    if (auto encoded = ::opus_encode(opus_enc, static_cast<const opus_int16*>(pInput), frameCount, opus_data_start, buf_len_remains); encoded < 0)
-    {
-        std::cerr << get_opus_err_str(encoded) << '\n';
-        return;
-    }
-    else
-    {
-		static auto talkspurt_start = true;
-		if (encoded > 2) // not dtx
-		{
-			rtp_stream.advance_seq_num();
-			if (talkspurt_start)
-			{
-				rtpp::rtp{pkt_buff.data(), pkt_buff.size()}.mark();
-				talkspurt_start = false;
-			}
-			const auto total_pkt_len = opus_data_start - pkt_buff.data() + encoded;
-			sock.write(u_d.remote(), pkt_buff.data(), total_pkt_len);
-	    }
-		else
-	    {
-			talkspurt_start = true;
-	    }
-    }
-
-    // try playout
-	auto decode_buf = std::array<opus_int16, 2048>{};
-	{
-		if (recv_buf.m_is_empty)
-		{
-			std::cerr << "Audio buffer underrun" << '\n';
-			return;
-		}
-#if 0
-		const auto rtp_pkt = cliph::rtp::rtp{recv_buf.m_buffer.data(), recv_buf.m_size};
-		assert(rtp_pkt);
-		std::cerr << rtp_pkt << '\n';
-#endif
-		// we only offer OPUS and nothing else, so only expect OPUS payloads
-		// TODO: incoming pt check
-		const auto rtp_pkt = rtpp::rtp{recv_buf.m_buffer.data(), recv_buf.m_size};
-		if (rtp_pkt.pt() != u_d.m_rmt_opus_pt)
-		{
-			std::cerr << "Got unexpected pt: " <<  rtp_pkt.pt() << '\n';
-			return;
-		}
-		if (auto frame_sz = ::opus_decode(opus_dec, rtp_pkt, rtp_pkt.size(), decode_buf.data(), decode_buf.size(), /*decode_fec*/ 0); frame_sz < 0)
-	   	{
-	        std::cerr << get_opus_err_str(frame_sz) << '\n';
-	   	}
-		else
-	   	{
-            MA_COPY_MEMORY(pOutput, decode_buf.data(), frame_sz * ma_get_bytes_per_frame(pDevice->capture.format, pDevice->capture.channels));
-	   	}
-	}
-}
-#endif
-
 } //anon namespace
 
 

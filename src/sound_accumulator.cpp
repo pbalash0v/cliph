@@ -6,10 +6,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <ratio>
+#include <stdexcept>
 #include <thread>
 //
 #include <rtp.hpp>
+#include <unistd.h>
 #include "data_types.hpp"
+#include "opus.h"
 #include "sound_accumulator.hpp"
 #include "controller.hpp"
 
@@ -89,7 +92,7 @@ accumulator::accumulator(cliph::controller& controller
 	, m_in_strm{in_strm}
 	, m_socket{asio::ip::udp::socket{m_io, asio::ip::udp::endpoint{cfg.local_media_ip, 0u}}}
 {
-	m_opus_enc_ctx = get_opus_enc(m_snd_cfg.m_audio_device_sample_rate, /*channel_count*/ 1u, /*dtx */true);
+	m_opus_enc_ctx = get_opus_enc(m_snd_cfg.m_audio_device_sample_rate, /*channel_count*/ 1u, /*dtx */false);
 	m_opus_dec_ctx = get_opus_dec(m_snd_cfg.m_audio_device_sample_rate, /*channel_count*/ 1u);
 
 	m_strm.payloads().emplace(96, rtpp::payload_type{48000u});
@@ -108,60 +111,129 @@ void accumulator::run()
 {
 	m_egress_thr = std::thread{[this]()
 	{
-		std::cerr << "accumulator egress_loop started\n";
+		std::cerr << "egress accumulator loop started\n";
 		egress_loop();
-		std::cerr << "accumulator egress_loop finished\n";
+		std::cerr << "egress accumulator loop finished\n";
 	}};
 	if (auto rc = ::pthread_setname_np(m_egress_thr.native_handle(), "EGRS_SND_ACCUM"))
 	{
 		throw std::runtime_error{"pthread_setname_np"};
 	}
-#if 0
+
 	m_ingress_thr = std::thread{[this]()
 	{
-		std::cerr << "accumulator ingress_loop started\n";
+		std::cerr << "ingress accumulator loop started\n";
 		ingress_loop();
-		std::cerr << "accumulator ingress_loop finished\n";
+		std::cerr << "ingress accumulator loop finished\n";
 	}};
 	if (auto rc = ::pthread_setname_np(m_ingress_thr.native_handle(), "IGRS_SND_ACCUM"))
 	{
 		throw std::runtime_error{"pthread_setname_np"};
 	}
-#endif		
 }
 
-void accumulator::ingress_loop()
+void accumulator::ingress_loop(bool debug)
 {
-#if 0	
 	while (true)
 	{
-		
-		auto slot = m_ingress_audio_q.get();
-		if (!slot) continue;
-		slot->reset();
-		auto from = decltype(m_socket)::endpoint_type{};
-		auto recvd = m_socket.receive_from(asio::buffer(slot->rtp_data), from);
-		slot->rtp_data_sz = recvd;
+		auto net_in_slot = m_in_q.get();
+		if (!net_in_slot)
+		{
+			std::cerr << "Ingress audio buffer overrun\n";
+			continue;
+		}
 
-		m_ingress_rtp_buf.put(std::move(slot));
+		//
+		net_in_slot->reset();
+		auto& rtp = net_in_slot->m_rtp;
+		//
+		// Net
+		//
+		auto from = decltype(m_socket)::endpoint_type{};
+		auto recvd = m_socket.receive_from(asio::buffer(rtp.data), from);
+		rtp.data_sz = recvd;
+		//
+		// RTP
+		//
+		const auto rtp_pkt = rtpp::rtp{rtp.data.data(), rtp.data_sz};
+		//std::cerr << rtp_pkt << '\n';
+		if (not rtp_pkt)
+		{
+			net_in_slot->reset();
+			continue;
+		}
+		// we only offer OPUS and nothing else, so only expect OPUS payloads
+		// TODO: incoming pt check
+		if (rtp_pkt.pt() != 96u) // FIXME !!!!!!!!!!!!!!!
+		{
+			std::cerr << "Got unexpected pt: " <<  rtp_pkt.pt() << '\n';
+			net_in_slot->reset();
+			continue;
+		}
+		//
+		// Media
+		//
+		auto samples_decoded = ::opus_decode(m_opus_dec_ctx
+			, rtp_pkt, rtp_pkt.size()
+			, m_ingress_snd_accum.data() + m_ingress_snd_offset, m_ingress_snd_accum.size() - m_ingress_snd_offset
+			, /*decode_fec*/ 0);
+		if (samples_decoded < 0)
+		{
+			std::fprintf(stderr, "%s\n", get_opus_err_str(samples_decoded).data());
+			continue;
+		}
+		debug and std::fprintf(stderr, "[%s] decoded: %d\n", __func__, samples_decoded);
+		//
+		const auto k_opus_rtp_clocking = 48000u;
+		const auto samples_per_ms = k_opus_rtp_clocking/1000u;
+		const auto cur_frame_sz_ms = std::chrono::milliseconds{samples_decoded/samples_per_ms};
+		if ((cur_frame_sz_ms.count() % 10 != 0) or (cur_frame_sz_ms != 20ms))
+		{
+			throw std::runtime_error{"Unhandled payload size"};
+		}
+
+		const auto needed_slot_count = cur_frame_sz_ms.count() / 10u;
+		for (auto slot_num = 0u, snd_offset = 0u; slot_num != needed_slot_count; ++slot_num)
+		{
+			if (auto slot = m_in_q.get())
+			{
+				slot->reset();
+				slot->m_sound.sz = 10ms;
+				slot->m_sound.sample_count = samples_decoded / needed_slot_count;
+				slot->m_sound.sample_rate = 48000u;
+				std::memcpy(slot->m_sound.data.data()
+					, m_ingress_snd_accum.data() + snd_offset, 2*slot->m_sound.sample_count);
+				snd_offset += slot->m_sound.sample_count;
+				debug && std::fprintf(stderr, "[%s]: %lu samples, %lu bytes\n"
+					, __func__, slot->m_sound.sample_count, 2*slot->m_sound.sample_count);
+				m_in_strm.put(std::move(slot));
+			}
+			else
+			{
+				debug && std::cerr << "Ingress audio buffer overrun\n";
+				continue;
+			}
+		}
+
+		net_in_slot->reset();
 	}
-#endif
 }
 
-void accumulator::egress_loop()
+void accumulator::egress_loop(bool debug)
 {
 	// To encode a frame opus_encode() must be called with exactly one frame (2.5, 5, 10, 20, 40 or 60 ms) of audio data
+	// But OPUS_APPLICATION_VOIP type encoding only supports (10, 20, 40 or 60 ms) of audio data
 	const auto k_lengths = std::array<milliseconds, 4u>{10ms, 20ms, 40ms, 60ms};
 	//
 	using slot_type = typename std::remove_reference_t<decltype(m_out_q)>::slot_type;
 
 	//
-	bool is_dtx = false;
-	//
 	const auto reset = [&](auto& media)
 	{
 		media.reset();
-		m_egress_snd_offset = 0;
+		m_egress_snd_sz = 0ms;
+		m_egress_sample_count = 0;
+		m_egress_bytes_count = 0;
 		m_next_len = k_lengths[std::rand() % k_lengths.size()];
 	};
 
@@ -170,66 +242,64 @@ void accumulator::egress_loop()
 		auto slot = slot_type{};
 
 		m_out_strm.get(slot);
+		//
 		auto& sound = slot->m_sound;
 		auto& rtp = slot->m_rtp;
+		if (sound.sample_count == 0u or sound.sz == 0ms) { break; }
 		//
-		if (sound.sample_count == 0u) { break; }
+		// Accumulate
+		//
+		assert(sound.sz == 10ms);
+		assert(sound.sample_rate == 48000);
+		assert(sound.sample_count == 480);
+		assert(sound.bytes_count == 480*2);
+		//
+		std::memcpy((char*)m_egress_snd_accum.data() + m_egress_bytes_count, sound.data.data(), sound.bytes_count);
+		m_egress_sample_count += sound.sample_count;
+		m_egress_snd_sz += sound.sz;
+		m_egress_bytes_count += sound.bytes_count;
+		//
+		if (m_egress_snd_sz != m_next_len) { slot->reset(); continue; }
 
-		std::memcpy(m_egress_snd_accum.data() + m_egress_snd_offset, sound.data.data(), sound.bytes_sz());
-		m_egress_snd_offset += sound.bytes_sz();
 		//
-		const auto samples_per_ms = sound.sample_rate/1000u;
-		const auto curr_accum = milliseconds{(m_egress_snd_offset/sizeof(cliph::data::media_elt::sound::sample_type))/samples_per_ms};
+		// Encode
 		//
-		//std::printf("%lu bytes, %d samples, %d ms\n" \
-			, sound.bytes_sz(), sound.sample_count, sound.sample_count/samples_per_ms);
-		assert(milliseconds{sound.sample_count/samples_per_ms} == 10ms);
-		//
-		if (curr_accum < m_next_len) { continue; }
-
-		// encode
-		if (const auto encoded = ::opus_encode(m_opus_enc_ctx
-			, m_egress_snd_accum.data(), m_egress_snd_offset
-			, rtp.data.data(), rtp.data.size())
-			; encoded < 0)
+		debug and std::fprintf(stderr, "[%s] accumulated %ld ms, %lu samples, %lu bytes of audio\n"
+					, __func__, m_egress_snd_sz.count(), m_egress_sample_count, m_egress_bytes_count);
+		const auto encoded = ::opus_encode(m_opus_enc_ctx
+			, static_cast<const opus_int16*>(m_egress_snd_accum.data()), m_egress_sample_count
+			, rtp.data.data(), rtp.data.size());
+		if (encoded < 0)
 		{
 			std::cerr << get_opus_err_str(encoded) << '\n';
-		}
-		else
-		{
-			if (encoded < 3) // DTX
-			{
-				std::printf("DTX\n");
-				is_dtx = true;
-			}
-			else
-			{
-				is_dtx = false;
-				rtp.data_sz = encoded;
-				std::printf("%ld ms, encoded: %d\n", curr_accum.count(), encoded);
-			}
-		}
-
-		// packetize
-		m_strm.advance_ts(96u, curr_accum);
-		if (is_dtx)
-		{
 			reset(*slot);
 			continue;
 		}
+		//
+		// Packetize
+		//
+		m_strm.advance_ts(96u, m_egress_snd_sz);
+		if (encoded < 3) // DTX
+		{
+			debug and std::fprintf(stderr, "DTX\n");
+			reset(*slot);
+			continue;
+		}
+		//
+		debug and std::fprintf(stderr, "[%s] total of %ld ms of audio encoded to %d bytes\n"
+			, __func__, m_egress_snd_sz.count(), encoded);
+
 		m_strm.advance_seq_num();
 
-		const auto hdr_sz = static_cast<unsigned char*>(m_strm.fill(rtp.hdr.data(), rtp.hdr.size())) - rtp.hdr.data();
-		//std::cerr << rtpp::rtp{media.rtp_hdr.data(), static_cast<size_t>(hdr_sz)} << ", hdr_sz: " <<  hdr_sz << '\n';
-
+		//
 		// send
-		const auto* rtp_hdr = rtp.hdr.data();
-		const auto rtp_hdr_len = hdr_sz;			
-		const auto* encoded = rtp.data.data();
-		const auto enc_len = rtp.data_sz;
-		assert(rtp_hdr); assert(rtp_hdr_len); assert(encoded); assert(enc_len);
+		//
+		const auto* hdr = rtp.hdr.data();
+		const auto hdr_sz = static_cast<unsigned char*>(m_strm.fill(rtp.hdr.data(), rtp.hdr.size())) - rtp.hdr.data();
+		const auto* data = rtp.data.data();
+		debug and std::cerr << rtpp::rtp{rtp.hdr.data(), static_cast<size_t>(hdr_sz)} << ", hdr_sz: " <<  hdr_sz << '\n';
 		using rtp_type = std::array<asio::const_buffer, 2>;
-		auto sent = m_socket.send_to(rtp_type{asio::buffer(rtp_hdr, rtp_hdr_len), asio::buffer(encoded, enc_len)}
+		auto sent = m_socket.send_to(rtp_type{asio::buffer(hdr, hdr_sz), asio::buffer(data, encoded)}
 			, m_remote_media);
 		assert(sent);
 

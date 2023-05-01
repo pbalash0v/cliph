@@ -4,6 +4,7 @@
 #include <chrono>
 #include <array>
 #include <cstdint>
+#include <iterator>
 //
 #include "ts_idx_q.hpp"
 #include "ts_mem_chunk.hpp"
@@ -17,9 +18,6 @@ using raw_audio_buf = cliph::utils::ts_mem_chunk<>;
 //
 struct media_elt
 {
-	//
-	//
-	//
 	struct sound
 	{
 		using sample_type = std::int16_t;
@@ -27,14 +25,9 @@ struct media_elt
 		//
 		std::array<sample_type, k_capacity> data{};
 		std::size_t sample_count{};
+		std::size_t bytes_count{};
 		std::chrono::milliseconds sz{};
 		unsigned sample_rate{};
-		//
-		auto bytes_sz() const noexcept
-		{
-			return sample_count*sizeof(sample_type);
-		}
-
 	};
 	sound m_sound;
 	//
@@ -59,12 +52,13 @@ struct media_elt
 	//
 	void reset()
 	{
-		m_sound.sample_count = {};
-		m_sound.sz = {};
-		m_sound.sample_rate = {};
+		m_sound.sample_count = 0u;
+		m_sound.bytes_count = 0u;
+		m_sound.sz = std::chrono::milliseconds{0};
+		m_sound.sample_rate = 0u;
 		//
-		m_rtp.hdr_sz = {};
-		m_rtp.data_sz = {};
+		m_rtp.hdr_sz = 0u;
+		m_rtp.data_sz = 0u;
 	}
 };
 
@@ -74,7 +68,7 @@ using media_storage = std::array<media_elt, media_storage_sz>;
 using media_queue = utils::ts_idx_queue<media_storage>;
 using slot_type = media_queue::slot_type;
 //
-using media_stream = utils::ts_cbuf<slot_type>;
+using media_stream = utils::ts_cbuf<slot_type, media_storage_sz>;
 
 } //namespace cliph::utils
 

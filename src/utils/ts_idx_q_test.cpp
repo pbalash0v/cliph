@@ -1,4 +1,5 @@
 #include <chrono>
+#include <string>
 #include <thread>
 #include <vector>
 #include <algorithm>
@@ -10,52 +11,58 @@
 using namespace cliph;
 using namespace std::chrono_literals;
 
+//#define SIMULATE_PRODUCER_WORK
+//#define SIMULATE_CONSUMER_WORK
+
 [[maybe_unused]] constexpr const auto k_work_duration = std::chrono::nanoseconds{500};
 
 int main()
 {
 	using elem_type = int;
-
+	//
 	auto wrapped = std::array<int, 64u>{};
 	auto q = utils::ts_idx_queue{wrapped};
 
 	using slot_t = typename decltype(q)::slot_type;
-	auto slot_q = utils::ts_cbuf<slot_t>{};
-
+	auto circular_buf = utils::ts_cbuf<slot_t, wrapped.size()>{};
+	//
+	//
+	//
 	const auto kLen = 1'000'000;
 	auto producer_flow = std::vector<elem_type>(kLen);
-	std::for_each(std::begin(producer_flow), std::end(producer_flow), [](auto& elem)
-	{
-		elem = std::rand() % 256u;
-	});
+	std::iota(producer_flow.begin(), producer_flow.end(), 1);
+	auto producer_overrun = 0ull;
+	auto consumer_flow = std::vector<elem_type>(kLen);
+	auto consumer_underrun = 0ull;
 	//
 	auto start = std::chrono::steady_clock::now();
-	auto producer_overrun = 0ull;
+	//
 	auto producer = std::thread{[&]
 	{
 		for (const auto& v : producer_flow) 
 		{
-#ifdef SIMULATE_WORK
+#ifdef SIMULATE_PRODUCER_WORK
 			std::this_thread::sleep_for(k_work_duration);
 #endif
-			for (auto slot = q.get();; slot = q.get())
+			for (;;)
 			{
-				if (slot)
+				if (auto slot = q.get())
 				{
 					*slot = v;
-					slot_q.put(std::move(slot));
+					circular_buf.put(std::move(slot));
+					assert(!slot);
 					break;
 				}
 				++producer_overrun;
 			}
 		}
 
-		for (auto slot = q.get();; slot = q.get())
+		for (;;)
 		{
-			if (slot)
+			if (auto slot = q.get())
 			{
 				*slot = -1;
-				slot_q.put(std::move(slot));
+				circular_buf.put(std::move(slot));
 				break;
 			}
 		}
@@ -66,16 +73,18 @@ int main()
 		throw std::runtime_error{"pthread_setname_np"};
 	}
 	//
-	auto consumer_flow = std::vector<elem_type>(kLen);
-	auto consumer_underrun = 0ull;
+	//
+	//
 	auto consumer = std::thread{[&]
 	{
 		auto it = std::begin(consumer_flow);
 		while (true)
 		{
 			auto slot = slot_t{};
+			assert(!slot);
 #if 1
-			slot_q.get(slot);
+			circular_buf.get(slot);
+			assert(slot);
 			if (*slot < 0) { break; }
 			*it++ = *slot;
 #endif
@@ -90,7 +99,7 @@ int main()
 				++consumer_underrun;
 			}
 #endif
-#ifdef SIMULATE_WORK
+#ifdef SIMULATE_CONSUMER_WORK
 		std::this_thread::sleep_for(k_work_duration);
 #endif
 		}
@@ -101,8 +110,10 @@ int main()
 		throw std::runtime_error{"pthread_setname_np"};
 	}
 	//
-	producer.join();
+	//
+	//
 	consumer.join();
+	producer.join();
 	//
 	auto stop = std::chrono::steady_clock::now();	
 	//

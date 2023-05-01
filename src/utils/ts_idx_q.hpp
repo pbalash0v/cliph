@@ -1,13 +1,18 @@
 #ifndef ts_idx_q_hpp
 #define ts_idx_q_hpp
 
+#include <cassert>
 #include <cstdio>
+#include <memory>
 #include <mutex>
 #include <map>
 #include <numeric>
 #include <utility>
 #include <queue>
 #include <vector>
+#ifndef NDEBUG
+#include <iostream>
+#endif
 //
 #include "common_std.hpp"
 
@@ -20,34 +25,32 @@ template<typename T>
 class ts_idx_queue final
 {
 public:
-	using container_type = T;
-	using queue_type = ts_idx_queue<container_type>;
-	using value_type = typename container_type::value_type;
+	using wrapped_container_type = T;
+	using value_type = typename wrapped_container_type::value_type;
+	using queue_type = ts_idx_queue<wrapped_container_type>;
 
 public:	
-	template <typename Q>
 	class slot
 	{
 	public:
-		using value_type = typename Q::value_type;
-
-	public:
 		value_type& operator*()
 		{
-			return m_owner->m_wrapped[m_idx];
+			assert(m_idx);
+			return *m_idx;
 		}
 
 		value_type* operator->()
 		{
-		 	return std::addressof(m_owner->m_wrapped[m_idx]);
+			assert(m_idx);
+			return m_idx;
 		}
 
 		slot(const slot& oth) = delete;
 		slot& operator=(const slot&) = delete;
 
-		slot(slot&& oth)
+		slot(slot&& oth) noexcept
 			: m_owner{std::exchange(oth.m_owner, nullptr)}
-			, m_idx{std::exchange(oth.m_idx, -1)}
+			, m_idx{std::exchange(oth.m_idx, nullptr)}
 		{
 		}
 
@@ -55,50 +58,48 @@ public:
 		{
 			if (&oth == this) { return *this; }
 			m_owner = std::exchange(oth.m_owner, nullptr);
-			m_idx = std::exchange(oth.m_idx, -1);
+			m_idx = std::exchange(oth.m_idx, nullptr);
 			return *this;
 		}
 
-		explicit operator bool() const noexcept { return m_idx != -1; }
+		explicit operator bool() const noexcept
+		{
+			return m_idx != nullptr && m_owner != nullptr;
+		}
 
 		~slot() noexcept
 		{
-			if (!*this) { return; }
+			if (!m_idx) { return; }
 
 			auto lk = std::lock_guard{m_owner->m_mtx};
-#ifdef PQ_INDEXING
 			m_owner->m_indices.push(m_idx);
-#else
-			m_owner->m_indices.push_back(m_idx);
-#endif // PQ_INDEXING
 		}
 
 		slot() = default;
-		slot(Q* q, int idx)
+private:
+		slot(queue_type* q, value_type* idx)
 			: m_owner{q}
 			, m_idx{idx}
-		{}
+		{
+		}
 		//
-		Q* m_owner{};
-		int m_idx{-1};
+		queue_type* m_owner{nullptr};
+		value_type* m_idx{nullptr};
+		friend class ts_idx_queue<T>;
 	};
 
 public:
-	using slot_type = typename ts_idx_queue<container_type>::slot<queue_type>;
+	using slot_type = typename ts_idx_queue<wrapped_container_type>::slot;
 
 public:
 	ts_idx_queue(T& wrapped)
 		: m_wrapped{wrapped}
 	{
-#ifdef PQ_INDEXING
-		for (auto i = 0u; i < m_wrapped.size(); ++i)
+		//for (auto i = 0u; i < m_wrapped.size(); ++i)
+		for (auto& elem : m_wrapped)
 		{
-			m_indices.push(i);
+			m_indices.push(std::addressof(elem));
 		}
-#else
-		m_indices.resize(wrapped.size());
-		std::iota(m_indices.begin(), m_indices.end(), 0);
-#endif // PQ_INDEXING
 	}
 
 	[[nodiscard]] slot_type get()
@@ -111,23 +112,21 @@ public:
 		//
 		if (m_indices.empty())
 		{
-			return {this, -1};
+			return {};
 		}
-#ifdef PQ_INDEXING
-		auto idx = m_indices.top();
+		//
+		auto* idx = m_indices.top();
+		assert(idx);
 		m_indices.pop();
-#else
-		auto idx = m_indices.back();
-		m_indices.pop_back();
-#endif // PQ_INDEXING
-#ifdef DBG_MAP
+
+#ifdef DBG_SLOT_USAGE_STAT
 		m_stat[idx]++;
-#endif // DBG_MAP
+#endif
 		return {this, idx};
 	}
 
-#ifdef DBG_MAP
-	~ts_idx_q()
+#ifdef DBG_SLOT_USAGE_STAT
+	~ts_idx_queue()
 	{
 		for (auto [idx, freq] : m_stat)
 		{
@@ -140,14 +139,10 @@ private:
 	T& m_wrapped;
 
 private:
-#ifdef PQ_INDEXING
-	std::priority_queue<int, std::vector<int>, std::greater<int>> m_indices;
-#else
-	std::vector<int> m_indices;
-#endif // PQ_INDEXING
+	std::priority_queue<value_type*, std::vector<value_type*>, std::greater<value_type*>> m_indices;
 	//
-#ifdef DBG_MAP
-	//std::map<size_t, size_t> m_stat;
+#ifdef DBG_SLOT_USAGE_STAT
+	std::map<value_type*, size_t> m_stat;
 #endif
 	//
 	std::mutex m_mtx;
@@ -155,39 +150,31 @@ private:
 };
 
 
-template <typename T, auto capacity = 64u>
+template <typename T, auto capacity>
 class ts_cbuf
 {
 public:
 	void put(T&& val)
 	{
-		while (!(try_put(std::move(val)))) {}
+		auto v = std::move(val);
+		while (!try_put_impl(v))
+		{
+		}
 	}
 
 	bool try_put(T&& val)
 	{
-		while (!m_mtx.try_lock())
-		{
-			std::this_thread::yield();
-		}
-		auto lk = std::unique_lock{m_mtx, std::adopt_lock};
-
-		if (((m_write + 1) % capacity) == m_read)
-		{
-			return false;
-		}
-		else
-		{
-			m_buf[m_write] = std::move(val);
-			m_write = (m_write + 1) % capacity;
-			lk.unlock();
-			m_cond.notify_one();
-			return true;
-		}
+		auto v = std::move(val);
+		return try_put_impl(v);
 	}
 
 	void get(T& val)
 	{
+		if (try_get(val))
+		{
+			return;
+		}
+
 		auto lk = std::unique_lock{m_mtx};
 		m_cond.wait(lk, [&]() { return m_write != m_read; });
 
@@ -219,6 +206,28 @@ private:
 	//	
 	alignas(64) std::uint_fast64_t m_read{};
 	alignas(64) std::uint_fast64_t m_write{};
+
+private:
+	bool try_put_impl(T& val)
+	{
+		while (!m_mtx.try_lock())
+		{
+			std::this_thread::yield();
+		}
+		auto lk = std::unique_lock{m_mtx, std::adopt_lock};
+
+		if (((m_write + 1) % capacity) == m_read)
+		{
+			return false;
+		}
+
+		m_buf[m_write] = std::move(val);
+		m_write = (m_write + 1) % capacity;
+
+		lk.unlock();
+		m_cond.notify_one();
+		return true;
+	}
 };  //class circ_buf
 
 
